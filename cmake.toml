@@ -37,13 +37,23 @@ headers = ["src/**.hpp", "src/**.h"]
 include-directories = [
     "shared/", 
     "src/", 
-    "include/", 
+    "include/"
 ]
 
 compile-options = ["/GS-", "/bigobj", "/EHa", "/MP"]
 compile-features = ["cxx_std_20"]
-compile-definitions = []
+compile-definitions = [
+
+]
 link-libraries = [
     "kananlib",
-    "plugin_renderlib"
+    "plugin_renderlib",
+    "glm_static",
+    "sdk"
 ]
+cmake-after = """
+target_compile_definitions(steel PUBLIC 
+    NOMINMAX
+    WINVER=0x0A00
+)
+"""
