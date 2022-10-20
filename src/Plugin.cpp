@@ -347,7 +347,9 @@ public:
                     standing_origin.z = hmd_origin.z;
                     vr->set_standing_origin((UEVR_Vector3f*)&standing_origin);
 
+                    ///////////////////////////////////
                     // first attempt at motion controls
+                    ///////////////////////////////////
                     auto weapon = pawn->CurrentlyEquippedWeapon;
 
                     Vector3f right_hand_position{};
@@ -423,14 +425,60 @@ public:
                         FHitResult r2{};
                         arm_cannon->K2_SetActorTransform(transform, false, r2, false);
                     }
+
+                    
+                    handle_input(pawn, *(Vector3f*)position, *(FRotator*)rotation);
                 }
 
+                // Eye offset. Apply it at the very end so the eye itself doesn't get used as the actor's position, but rather the center of the head.
                 *(Vector3f*)position -= offset2;
             }
         }
     }
 
 private:
+    void handle_input(APlayerCharacter_BP_Manny_C* pawn, Vector3f& position, FRotator& rotation) {
+        auto vr = API::get()->param()->vr;
+
+        const auto left_joystick_source = vr->get_left_joystick_source();
+        const auto right_joystick_source = vr->get_right_joystick_source();
+
+        Vector2f left_joystick_axis{};
+        vr->get_joystick_axis(left_joystick_source, (UEVR_Vector2f*)&left_joystick_axis);
+
+        Vector2f right_joystick_axis{};
+        vr->get_joystick_axis(right_joystick_source, (UEVR_Vector2f*)&right_joystick_axis);
+
+        const auto rot_flat_q = utility::math::flatten(glm::quat{glm::yawPitchRoll(
+            glm::radians(-rotation.Yaw),
+            glm::radians(rotation.Pitch),
+            glm::radians(-rotation.Roll))
+        });
+
+        auto fwd = rot_flat_q * glm::vec3{1.0f, 0.0f, 0.0f};
+
+        const auto quat_asdf = glm::quat{Matrix4x4f {
+            0, 0, -1, 0,
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 0, 1
+        }};
+
+
+        // rotate left joystick axis by the player's rotation
+        const auto corrected_left_joystick = quat_asdf * rot_flat_q * Vector3f{-left_joystick_axis.x, 0.0f, left_joystick_axis.y};
+
+        //fwd.x *= corrected_left_joystick.z;
+        //fwd.y *= corrected_left_joystick.x;
+
+        pawn->AddMovementInput(*(FVector*)&corrected_left_joystick, 1.0f, false);
+        
+        pawn->AddControllerPitchInput(-right_joystick_axis.y);
+        pawn->AddControllerYawInput(right_joystick_axis.x);
+
+        //pawn->AddMovementInput
+    }
+
     bool initialize_imgui() {
         if (m_initialized) {
             return true;
