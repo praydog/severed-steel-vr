@@ -27,8 +27,11 @@
 #include "steelsdk/AWeaponBase.hpp"
 #include "steelsdk/AArmCannon.hpp"
 #include "steelsdk/UKismetSystemLibrary.hpp"
+#include "steelsdk/UKismetStringLibrary.hpp"
 #include "steelsdk/UGameViewportClient.hpp"
 #include "steelsdk/UWorld.hpp"
+#include "steelsdk/UPawnMovementComponent.hpp"
+#include "steelsdk/UInputComponent.hpp"
 
 #include <safetyhook/Factory.hpp>
 #include <safetyhook/MidHook.hpp>
@@ -63,6 +66,19 @@ T* DCast(UObject* In) {
 
 class SteelPlugin;
 extern std::unique_ptr<SteelPlugin> g_plugin;
+
+FString fstring_from_chars(std::wstring_view chars) {
+    FString str;
+    str.Data.Data = (wchar_t*)chars.data();
+    str.Data.ArrayNum = chars.size();
+    str.Data.ArrayMax = chars.size();
+    return str;
+}
+
+FName fname_from_chars(std::wstring_view chars) {
+    const auto str = fstring_from_chars(chars);
+    return UKismetStringLibrary::Conv_StringToName(str);
+}
 
 class SteelPlugin : public uevr::Plugin {
 public:
@@ -183,7 +199,7 @@ public:
     }
 
     void on_device_reset() override {
-        PLUGIN_LOG_ONCE("Example Device Reset");
+        PLUGIN_LOG_ONCE("Device Reset");
 
         const auto renderer_data = API::get()->param()->renderer;
 
@@ -204,6 +220,69 @@ public:
         ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
 
         return !ImGui::GetIO().WantCaptureMouse && !ImGui::GetIO().WantCaptureKeyboard;
+    }
+
+    void on_xinput_get_state(uint32_t* retval, uint32_t user_index, XINPUT_STATE* state) override {
+        PLUGIN_LOG_ONCE("XInput Get State");
+
+        auto vr = API::get()->param()->vr;
+
+        const auto right_joystick_source = vr->get_right_joystick_source();
+        const auto left_joystick_source = vr->get_left_joystick_source();
+
+        const auto a_button_action = vr->get_action_handle("/actions/default/in/AButton");
+        const auto is_right_a_button_down = vr->is_action_active(a_button_action, right_joystick_source);
+        const auto is_left_a_button_down = vr->is_action_active(a_button_action, left_joystick_source);
+
+        if (is_right_a_button_down) {
+            state->Gamepad.wButtons |= XINPUT_GAMEPAD_A;
+        } else {
+        }
+
+        const auto b_button_action = vr->get_action_handle("/actions/default/in/BButton");
+        const auto is_right_b_button_down = vr->is_action_active(b_button_action, right_joystick_source);
+        const auto is_left_b_button_down = vr->is_action_active(b_button_action, left_joystick_source);
+
+        if (is_right_b_button_down) {
+            state->Gamepad.wButtons |= XINPUT_GAMEPAD_X;
+        } else {
+        }
+
+        if (is_left_a_button_down) {
+            state->Gamepad.wButtons |= XINPUT_GAMEPAD_B;
+        } else {
+        }
+
+        if (is_left_b_button_down) {
+            state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
+        } else {
+        }
+
+        const auto joystick_click_action = vr->get_action_handle("/actions/default/in/JoystickClick");
+        const auto is_left_joystick_click_down = vr->is_action_active(joystick_click_action, left_joystick_source);
+
+        if (is_left_joystick_click_down) {
+            state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
+        }
+
+
+        Vector2f left_joystick_axis{};
+        vr->get_joystick_axis(left_joystick_source, (UEVR_Vector2f*)&left_joystick_axis);
+
+        Vector2f right_joystick_axis{};
+        vr->get_joystick_axis(right_joystick_source, (UEVR_Vector2f*)&right_joystick_axis);
+
+        state->Gamepad.sThumbLX = (int16_t)(left_joystick_axis.x * 32767.0f);
+        state->Gamepad.sThumbLY = (int16_t)(left_joystick_axis.y * 32767.0f);
+
+        state->Gamepad.sThumbRX = (int16_t)(right_joystick_axis.x * 32767.0f);
+        state->Gamepad.sThumbRY = (int16_t)(right_joystick_axis.y * 32767.0f);
+
+        *retval = ERROR_SUCCESS;
+    }
+
+    void on_xinput_set_state(uint32_t* retval, uint32_t user_index, XINPUT_VIBRATION* vibration) override {
+        PLUGIN_LOG_ONCE("XInput Set State");
     }
 
     APlayerCharacter_BP_Manny_C* get_pawn(UGameEngine* engine) {
@@ -633,13 +712,13 @@ private:
         Vector2f right_joystick_axis{};
         vr->get_joystick_axis(right_joystick_source, (UEVR_Vector2f*)&right_joystick_axis);
 
-        if (left_joystick_axis.length() > 0.0f && m_was_forward_down) {
+        /*if (left_joystick_axis.length() > 0.0f && m_was_forward_down) {
             pawn->ForwardPressed();
             m_was_forward_down = false;
         } else {
             pawn->ForwardReleased();
             m_was_forward_down = true;
-        }
+        }*/
 
         const auto rot_flat_q = utility::math::flatten(glm::quat{glm::yawPitchRoll(
             glm::radians(-rotation.Yaw),
@@ -660,38 +739,45 @@ private:
         // rotate left joystick axis by the player's rotation
         const auto corrected_left_joystick = quat_to_ue4 * rot_flat_q * Vector3f{-left_joystick_axis.x, 0.0f, left_joystick_axis.y};
 
-        pawn->AddMovementInput(*(FVector*)&corrected_left_joystick, 1.0f, false);
+        //pawn->AddMovementInput(*(FVector*)&corrected_left_joystick, 1.0f, false);
+        /*pawn->GetMovementComponent()->AddInputVector(*(FVector*)&corrected_left_joystick, false);
 
         FHitResult r{};
-        pawn->GetFirstPersonCamera()->K2_AddLocalRotation(FRotator{0.0f, right_joystick_axis.x, 0.0f}, false, r, false);
+        pawn->GetFirstPersonCamera()->K2_AddLocalRotation(FRotator{0.0f, right_joystick_axis.x, 0.0f}, false, r, false);*/
 
         const auto a_button_action = vr->get_action_handle("/actions/default/in/AButton");
         const auto is_right_a_button_down = vr->is_action_active(a_button_action, right_joystick_source);
         const auto is_left_a_button_down = vr->is_action_active(a_button_action, left_joystick_source);
 
         if (is_right_a_button_down) {
-            pawn->Jump();
+            //pawn->bPressedJump = true;
+        } else {
+
         }
 
-        if (is_left_a_button_down && !m_was_left_a_button_down) {
+        /*if (is_left_a_button_down && !m_was_left_a_button_down) {
             pawn->KickSlidePressedController();
             m_was_left_a_button_down = true;
         } else if (!is_left_a_button_down && m_was_left_a_button_down) {
             pawn->KickSlideReleasedController();
             m_was_left_a_button_down = false;
-        }
+        }*/
 
         const auto b_button_action = vr->get_action_handle("/actions/default/in/BButton");
         const auto is_right_b_button_down = vr->is_action_active(b_button_action, right_joystick_source);
         const auto is_left_b_button_down = vr->is_action_active(b_button_action, left_joystick_source);
 
-        if (is_left_b_button_down && !m_was_left_b_button_down) {
+        /*if (is_left_b_button_down && !m_was_left_b_button_down) {
             pawn->DiveController();
             m_was_left_b_button_down = true;
         } else if (!is_left_b_button_down && m_was_left_b_button_down) {
             pawn->DiveReleased();
             m_was_left_b_button_down = false;
-        }
+        }*/
+
+        /*if (is_right_b_button_down) {
+            pawn->PickupCallPressedController();
+        }*/
 
         const auto grip_action = vr->get_action_handle("/actions/default/in/Grip");
         const auto is_right_grip_down = vr->is_action_active(grip_action, right_joystick_source);
@@ -730,12 +816,6 @@ private:
         if (is_right_trigger_down && !m_was_right_trigger_down) {
             pawn->TriggerDownController();
             m_was_right_trigger_down = true;
-
-            auto weapon = pawn->CurrentlyEquippedWeapon;
-
-            if (weapon != nullptr) {
-
-            }
         } else if (!is_right_trigger_down && m_was_right_trigger_down) {
             pawn->TriggerUpController();
             m_was_right_trigger_down = false;
