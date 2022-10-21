@@ -53,6 +53,17 @@ endif()
 
 add_subdirectory(dependencies/submodules/ue4poc)
 
+include(FetchContent)
+
+message(STATUS "Fetching safetyhook (e175896c67abf49360acafe8879205a138fe6b2b)...")
+FetchContent_Declare(safetyhook
+	GIT_REPOSITORY
+		"https://github.com/cursey/safetyhook"
+	GIT_TAG
+		e175896c67abf49360acafe8879205a138fe6b2b
+)
+FetchContent_MakeAvailable(safetyhook)
+
 # Target steel
 set(CMKR_TARGET steel)
 set(steel_SOURCES "")
@@ -12174,6 +12185,7 @@ target_link_libraries(steel PUBLIC
 	plugin_renderlib
 	glm_static
 	sdk
+	safetyhook
 )
 
 target_compile_definitions(steel PUBLIC 

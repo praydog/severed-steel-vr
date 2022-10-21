@@ -26,8 +26,15 @@
 #include "steelsdk/USkeletalMeshComponent.hpp"
 #include "steelsdk/AWeaponBase.hpp"
 #include "steelsdk/AArmCannon.hpp"
+#include "steelsdk/UKismetSystemLibrary.hpp"
+#include "steelsdk/UGameViewportClient.hpp"
+#include "steelsdk/UWorld.hpp"
 
+#include <safetyhook/Factory.hpp>
+#include <safetyhook/MidHook.hpp>
 #include <sdk/Math.hpp>
+#include <utility/Module.hpp>
+#include <utility/Scan.hpp>
 
 using namespace uevr;
 
@@ -54,9 +61,19 @@ T* DCast(UObject* In) {
         API::get()->log_info(__VA_ARGS__); \
     } }
 
-class ExamplePlugin : public uevr::Plugin {
+class SteelPlugin;
+extern std::unique_ptr<SteelPlugin> g_plugin;
+
+class SteelPlugin : public uevr::Plugin {
 public:
-    ExamplePlugin() = default;
+    SteelPlugin() = default;
+
+    // Called on unload
+    virtual ~SteelPlugin() {
+        if (m_resolve_impact_hook) {
+            m_resolve_impact_hook.reset();
+        }
+    }
 
     void on_dllmain() override {}
 
@@ -67,17 +84,59 @@ public:
         API::get()->log_warn("%s %s", "Hello", "warning");
         API::get()->log_info("%s %s", "Hello", "info");
 
-        auto gobj = get_GUObjectArray();
+        hook_resolve_impact();
+    }
 
-        /*for (auto i = 0; i < 10000; ++i) {
-            const auto obj = gobj->ObjObjects[i].Object;
+    void hook_resolve_impact() {
+        API::get()->log_info("Hooking AImpactManager::ResolveImpact");
 
-            if (obj) {
-                const auto name = get_full_name(obj);
+        auto factory = safetyhook::Factory::init();
+        auto builder = factory->acquire();
 
-                API::get()->log_info("%s", name.c_str());
+        auto item = find_uobject(15725550492628957501);
+
+        if (item != nullptr) {
+            auto obj = (UFunction*)(item->Object);
+
+            if (obj != nullptr) {
+                const auto func_wrapper = *(void**)((uintptr_t)obj + sizeof(UStruct) + 0x28);
+
+                if (func_wrapper != nullptr) {
+                    // Scan for the real function using disassembly
+                    // the moment we find a ret instruction, use the last call as the real function
+                    auto ip = (uintptr_t)func_wrapper;
+
+                    bool found_ret = false;
+                    uintptr_t last_function_called = 0;
+
+                    for (auto i = 0; i < 200; ++i) {
+                        const auto decoded = utility::decode_one((uint8_t*)ip);
+
+                        if (!decoded) {
+                            break;
+                        }
+
+                        if (*(uint8_t*)ip == 0xE8) {
+                            last_function_called = utility::calculate_absolute(ip + 1);
+                        }
+
+                        if (*(uint8_t*)ip == 0xC3 || *(uint8_t*)ip == 0xC2 || *(uint8_t*)ip == 0xCC) {
+                            found_ret = true;
+                            break;
+                        }
+
+                        ip += decoded->Length;
+                    }
+
+                    if (found_ret && last_function_called != 0) {
+                        API::get()->log_info("Found real function at %p", last_function_called);
+
+                        const auto game = utility::get_executable();
+                        m_resolve_impact_hook = builder.create_inline((void*)last_function_called, &on_resolve_impact);
+                    }
+                }
             }
-        }*/
+        }
     }
 
     void on_present() override {
@@ -174,6 +233,28 @@ public:
         return DCast<APlayerCharacter_BP_Manny_C>(controller->AcknowledgedPawn);
     }
 
+    UWorld* get_world(UGameEngine* engine) {
+        auto instance = engine->GameInstance;
+
+        if (instance == nullptr || instance->LocalPlayers.Num() == 0) {
+            return nullptr;
+        }
+
+        auto player = instance->LocalPlayers[0];
+
+        if (player == nullptr) {
+            return nullptr;
+        }
+
+        auto vp_client = player->ViewportClient;
+
+        if (vp_client == nullptr) {
+            return nullptr;
+        }
+
+        return vp_client->World;
+    }
+
     FRotator facegun(APlayerCharacter_BP_Manny_C* pawn, FRotator& real_rot) {
         auto rot = pawn->GetFirstPersonCamera()->K2_GetComponentRotation();
         auto component_q = utility::math::flatten(glm::yawPitchRoll(
@@ -225,16 +306,19 @@ public:
         PLUGIN_LOG_ONCE("Pre Engine Tick: %f", delta);
 
         m_engine = (UGameEngine*)engine_handle;
-        auto pawn = get_pawn(m_engine);
+        m_world = get_world(m_engine);
+        m_last_pawn = get_pawn(m_engine);
 
-        m_player_exists = pawn != nullptr;
+        m_player_exists = m_last_pawn != nullptr;
 
-        if (pawn == nullptr) {
+        
+
+        if (m_last_pawn == nullptr) {
             return;
         }
 
-        PLUGIN_LOG_ONCE("Pawn: 0x%p", (uintptr_t)pawn);
-        PLUGIN_LOG_ONCE("Pawn class: %s", get_full_name(pawn->ClassPrivate).c_str());
+        PLUGIN_LOG_ONCE("Pawn: 0x%p", (uintptr_t)m_last_pawn);
+        PLUGIN_LOG_ONCE("Pawn class: %s", get_full_name(m_last_pawn->ClassPrivate).c_str());
 
         //auto& rot = controller->TargetViewRotation;
     }
@@ -274,6 +358,8 @@ public:
             auto pawn = get_pawn(m_engine);
 
             if (pawn != nullptr) {
+                m_last_weapon = pawn->CurrentlyEquippedWeapon;
+
                 *(Vector3f*)position = m_last_pos_svo;
 
                 if ((view_index + 1) % 2 == 0) {
@@ -320,15 +406,15 @@ public:
                 Vector3f eye_offset{};
                 vr->get_eye_offset((view_index + 1) % 2, (UEVR_Vector3f*)&eye_offset);
 
-                const auto quat_asdf = glm::quat{Matrix4x4f {
+                const auto quat_to_ue4 = glm::quat{Matrix4x4f {
                     0, 0, -1, 0,
                     1, 0, 0, 0,
                     0, 1, 0, 0,
                     0, 0, 0, 1
                 }};
 
-                const auto offset1 = quat_asdf * (glm::normalize(view_quat_inverse_flat) * (pos * world_to_meters));
-                const auto offset2 = quat_asdf * (glm::normalize(view_quat_inverse) * (eye_offset * world_to_meters));
+                const auto offset1 = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (pos * world_to_meters));
+                const auto offset2 = quat_to_ue4 * (glm::normalize(view_quat_inverse) * (eye_offset * world_to_meters));
                 *(Vector3f*)position -= offset1;
 
                 if ((view_index + 1) % 2 == 0) {
@@ -360,11 +446,11 @@ public:
                     glm::quat left_hand_rotation{};
                     vr->get_pose(vr->get_left_controller_index(), (UEVR_Vector3f*)&left_hand_position, (UEVR_Quaternionf*)&left_hand_rotation);
 
-                    right_hand_position = glm::vec3{rotation_offset * (right_hand_position - standing_origin)};
-                    left_hand_position = glm::vec3{rotation_offset * (left_hand_position - standing_origin)};
+                    right_hand_position = glm::vec3{rotation_offset * (right_hand_position - hmd_origin)};
+                    left_hand_position = glm::vec3{rotation_offset * (left_hand_position - hmd_origin)};
 
-                    right_hand_position = quat_asdf * (glm::normalize(view_quat_inverse_flat) * (right_hand_position * world_to_meters));
-                    left_hand_position = quat_asdf * (glm::normalize(view_quat_inverse_flat) * (left_hand_position * world_to_meters));
+                    right_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (right_hand_position * world_to_meters));
+                    left_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (left_hand_position * world_to_meters));
 
                     right_hand_position = *(Vector3f*)position - right_hand_position;
                     left_hand_position = *(Vector3f*)position - left_hand_position;
@@ -428,6 +514,12 @@ public:
 
                     
                     handle_input(pawn, *(Vector3f*)position, *(FRotator*)rotation);
+                    //update_weapon_traces(pawn);
+
+                    // Hide the player model
+                    if (pawn->Hands != nullptr) {
+                        pawn->Hands->SetHiddenInGame(true, false);
+                    }
                 }
 
                 // Eye offset. Apply it at the very end so the eye itself doesn't get used as the actor's position, but rather the center of the head.
@@ -437,6 +529,98 @@ public:
     }
 
 private:
+    uint32_t m_resolve_impact_depth{0};
+    bool on_resolve_impact_internal(AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
+        PLUGIN_LOG_ONCE("on_resolve_impact_internal");
+        m_last_fired_actor = Shooter;
+
+        auto call_orig = [&]() -> bool {
+            try {
+                ++m_resolve_impact_depth;
+                if (m_resolve_impact_depth > 10) {
+                    return false;
+                }
+                const auto result = m_resolve_impact_hook->call<bool>(mgr, &HitResult, Impact, FiredByPlayer, Shooter, &TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
+                --m_resolve_impact_depth;
+                return result;
+            } catch(...) {
+                return false;
+            }
+        };
+
+        if (m_resolve_impact_depth > 0) {
+            return call_orig();
+        }
+
+        if (m_last_fired_actor == nullptr) {
+            return call_orig();
+        }
+
+        if (m_last_fired_actor != m_last_pawn) {
+            return call_orig();
+        }
+
+        const auto pawn = DCast<APlayerCharacter_BP_Manny_C>(m_last_pawn);
+
+        if (pawn == nullptr) {
+            return call_orig();
+        }
+
+        auto weapon = pawn->CurrentlyEquippedWeapon;
+
+        if (weapon == nullptr) {
+            return call_orig();
+        }
+
+        if (weapon->MuzzleFlashPointLight != nullptr) {
+            update_weapon_traces(pawn);
+            HitResult = m_right_hand_weapon_hr;
+            //ctx.rdx = (uintptr_t)&m_right_hand_weapon_hr;
+        }
+
+        return call_orig();
+    }
+
+    static bool on_resolve_impact(AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
+        return g_plugin->on_resolve_impact_internal(mgr, HitResult, Impact, FiredByPlayer, Shooter, TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
+    }
+
+    void update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
+        auto weapon = pawn->CurrentlyEquippedWeapon;
+
+        if (weapon == nullptr || m_world == nullptr || weapon->MuzzleFlashPointLight == nullptr) {
+            return;
+        }
+        
+        const auto start = ((USceneComponent*)weapon->MuzzleFlashPointLight)->K2_GetComponentLocation();
+        const auto& start_glm = *(glm::vec3*)&start;
+
+        const auto rot = ((USceneComponent*)weapon->MuzzleFlashPointLight)->K2_GetComponentRotation();
+        const auto rot_glm = glm::quat{glm::yawPitchRoll(
+            glm::radians(-rot.Yaw),
+            glm::radians(rot.Pitch),
+            glm::radians(-rot.Roll))
+        };
+
+        const auto quat_to_ue4 = glm::quat{Matrix4x4f {
+            0, 0, -1, 0,
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 0, 1
+        }};
+
+        const auto end_glm = start_glm + (quat_to_ue4 * rot_glm * glm::vec3{0, 0.0f, 8192.0f});
+        
+        TArray_Plugin<AActor*> ignore_actors{};
+        ignore_actors.Add(pawn);
+
+        FLinearColor color{1.0f, 1.0f, 1.0f, 1.0f};
+        m_right_hand_weapon_hr = {};
+        UKismetSystemLibrary::LineTraceSingle(m_world, start, *(FVector*)&end_glm, ETraceTypeQuery::TraceTypeQuery16, true, *(TArray<AActor*>*)&ignore_actors, EDrawDebugTrace::None, m_right_hand_weapon_hr, true, color, color, 0.0f);
+    } catch (...) {
+        PLUGIN_LOG_ONCE("update_weapon_traces failed");
+    }
+
     void handle_input(APlayerCharacter_BP_Manny_C* pawn, Vector3f& position, FRotator& rotation) {
         auto vr = API::get()->param()->vr;
 
@@ -449,6 +633,14 @@ private:
         Vector2f right_joystick_axis{};
         vr->get_joystick_axis(right_joystick_source, (UEVR_Vector2f*)&right_joystick_axis);
 
+        if (left_joystick_axis.length() > 0.0f && m_was_forward_down) {
+            pawn->ForwardPressed();
+            m_was_forward_down = false;
+        } else {
+            pawn->ForwardReleased();
+            m_was_forward_down = true;
+        }
+
         const auto rot_flat_q = utility::math::flatten(glm::quat{glm::yawPitchRoll(
             glm::radians(-rotation.Yaw),
             glm::radians(rotation.Pitch),
@@ -457,7 +649,7 @@ private:
 
         auto fwd = rot_flat_q * glm::vec3{1.0f, 0.0f, 0.0f};
 
-        const auto quat_asdf = glm::quat{Matrix4x4f {
+        const auto quat_to_ue4 = glm::quat{Matrix4x4f {
             0, 0, -1, 0,
             1, 0, 0, 0,
             0, 1, 0, 0,
@@ -466,18 +658,98 @@ private:
 
 
         // rotate left joystick axis by the player's rotation
-        const auto corrected_left_joystick = quat_asdf * rot_flat_q * Vector3f{-left_joystick_axis.x, 0.0f, left_joystick_axis.y};
-
-        //fwd.x *= corrected_left_joystick.z;
-        //fwd.y *= corrected_left_joystick.x;
+        const auto corrected_left_joystick = quat_to_ue4 * rot_flat_q * Vector3f{-left_joystick_axis.x, 0.0f, left_joystick_axis.y};
 
         pawn->AddMovementInput(*(FVector*)&corrected_left_joystick, 1.0f, false);
-        
-        pawn->AddControllerPitchInput(-right_joystick_axis.y);
-        pawn->AddControllerYawInput(right_joystick_axis.x);
 
-        //pawn->AddMovementInput
+        FHitResult r{};
+        pawn->GetFirstPersonCamera()->K2_AddLocalRotation(FRotator{0.0f, right_joystick_axis.x, 0.0f}, false, r, false);
+
+        const auto a_button_action = vr->get_action_handle("/actions/default/in/AButton");
+        const auto is_right_a_button_down = vr->is_action_active(a_button_action, right_joystick_source);
+        const auto is_left_a_button_down = vr->is_action_active(a_button_action, left_joystick_source);
+
+        if (is_right_a_button_down) {
+            pawn->Jump();
+        }
+
+        if (is_left_a_button_down && !m_was_left_a_button_down) {
+            pawn->KickSlidePressedController();
+            m_was_left_a_button_down = true;
+        } else if (!is_left_a_button_down && m_was_left_a_button_down) {
+            pawn->KickSlideReleasedController();
+            m_was_left_a_button_down = false;
+        }
+
+        const auto b_button_action = vr->get_action_handle("/actions/default/in/BButton");
+        const auto is_right_b_button_down = vr->is_action_active(b_button_action, right_joystick_source);
+        const auto is_left_b_button_down = vr->is_action_active(b_button_action, left_joystick_source);
+
+        if (is_left_b_button_down && !m_was_left_b_button_down) {
+            pawn->DiveController();
+            m_was_left_b_button_down = true;
+        } else if (!is_left_b_button_down && m_was_left_b_button_down) {
+            pawn->DiveReleased();
+            m_was_left_b_button_down = false;
+        }
+
+        const auto grip_action = vr->get_action_handle("/actions/default/in/Grip");
+        const auto is_right_grip_down = vr->is_action_active(grip_action, right_joystick_source);
+
+        if (is_right_grip_down) {
+            pawn->EnterSlowMo();
+            m_was_right_grip_down = true;
+        } else if (!is_right_grip_down && m_was_right_grip_down) {
+            pawn->LeaveSlowMo();
+            m_was_right_grip_down = false;
+        }
+        
+        const auto joystick_click_action = vr->get_action_handle("/actions/default/in/JoystickClick");
+        const auto is_right_joystick_click_down = vr->is_action_active(joystick_click_action, right_joystick_source);
+
+        if (is_right_joystick_click_down && !m_was_right_joystick_click_down) {
+            pawn->KickPressed();
+            m_was_right_joystick_click_down = true;
+        } else if (!is_right_joystick_click_down && m_was_right_joystick_click_down) {
+            pawn->KickReleased();
+            m_was_right_joystick_click_down = false;
+        }
+
+        const auto trigger_action = vr->get_action_handle("/actions/default/in/Trigger");
+        const auto is_left_trigger_down = vr->is_action_active(trigger_action, left_joystick_source);
+        const auto is_right_trigger_down = vr->is_action_active(trigger_action, right_joystick_source);
+
+        if (is_left_trigger_down && !m_was_left_trigger_down) {
+            pawn->ShootCannonGamepadPressed();
+            m_was_left_trigger_down = true;
+        } else {
+            pawn->ShootCannonGamepadReleased();
+            m_was_left_trigger_down = false;
+        }
+
+        if (is_right_trigger_down && !m_was_right_trigger_down) {
+            pawn->TriggerDownController();
+            m_was_right_trigger_down = true;
+
+            auto weapon = pawn->CurrentlyEquippedWeapon;
+
+            if (weapon != nullptr) {
+
+            }
+        } else if (!is_right_trigger_down && m_was_right_trigger_down) {
+            pawn->TriggerUpController();
+            m_was_right_trigger_down = false;
+        }
     }
+
+    bool m_was_left_a_button_down{false};
+    bool m_was_left_b_button_down{false};
+    bool m_was_right_grip_down{false};
+    bool m_was_right_joystick_click_down{false};
+    bool m_was_left_trigger_down{false};
+    bool m_was_right_trigger_down{false};
+    
+    bool m_was_forward_down{false};
 
     bool initialize_imgui() {
         if (m_initialized) {
@@ -524,17 +796,27 @@ private:
             ImGui::DragFloat3("Right Hand Rotation Offset", &m_right_hand_rotation_offset.Pitch);
             ImGui::DragFloat3("Left Hand Rotation Offset", &m_left_hand_rotation_offset.Pitch);
 
+            ImGui::Text("Last Pawn: 0x%p", (uintptr_t)m_last_pawn);
+            ImGui::Text("Last Weapon: 0x%p", (uintptr_t)m_last_weapon);
+            ImGui::Text("Last Fired Actor: 0x%p", (uintptr_t)m_last_fired_actor);
+
             ImGui::End();
         }
     }
 
 private:
+    std::unique_ptr<safetyhook::InlineHook> m_resolve_impact_hook{};
+
     HWND m_wnd{};
     bool m_initialized{false};
     bool m_player_exists{false};
     bool m_hands_exists{false};
 
     UGameEngine* m_engine{};
+    UWorld* m_world{};
+    APawn* m_last_pawn{nullptr};
+    AActor* m_last_weapon{nullptr};
+    AActor* m_last_fired_actor{nullptr};
 
     glm::quat m_last_vr_rotation{};
     Vector3f m_last_pos_svo{};
@@ -543,8 +825,10 @@ private:
     FRotator m_facegun_rotator{};
     FRotator m_right_hand_rotation_offset{-68.0f, -8.0f, 24.0f};
     FRotator m_left_hand_rotation_offset{-90.0f, 0.0f, 0.0f};
+
+    FHitResult m_right_hand_weapon_hr{};
 };
 
 // Actually creates the plugin. Very important that this global is created.
 // The fact that it's using std::unique_ptr is not important, as long as the constructor is called in some way.
-std::unique_ptr<ExamplePlugin> g_plugin{new ExamplePlugin()};
+std::unique_ptr<SteelPlugin> g_plugin{new SteelPlugin()};

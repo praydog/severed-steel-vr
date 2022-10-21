@@ -30,6 +30,10 @@ endif()
 add_subdirectory(dependencies/submodules/ue4poc)
 """
 
+[fetch-content.safetyhook]
+git = "https://github.com/cursey/safetyhook"
+tag = "e175896c67abf49360acafe8879205a138fe6b2b"
+
 [target.steel]
 type = "shared"
 sources = ["src/**.cpp", "src/**.c"]
@@ -49,7 +53,8 @@ link-libraries = [
     "kananlib",
     "plugin_renderlib",
     "glm_static",
-    "sdk"
+    "sdk",
+    "safetyhook"
 ]
 cmake-after = """
 target_compile_definitions(steel PUBLIC 

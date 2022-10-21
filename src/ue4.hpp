@@ -74,8 +74,7 @@ public:
 };
 
 template<typename T>
-class TArray
-{
+class TArray {
 public:
     __forceinline T* GetData() const {
         return Data;
@@ -100,6 +99,49 @@ public:
     int32_t ArrayMax;
 };
 
+// Todo: Figure out the memory allocator the game uses so we don't need to do this
+template<typename T>
+class TArray_Plugin : public TArray<T> {
+public:
+    TArray_Plugin() : TArray<T>() {
+        this->Data = nullptr;
+        this->ArrayNum = 0;
+        this->ArrayMax = 0;
+    }
+    ~TArray_Plugin() {
+        if (this->Data != nullptr) {
+            delete[] this->Data;
+        }
+    }
+
+    TArray_Plugin(const TArray<T>& other) {
+        this->Data = new T[other.ArrayNum];
+        this->ArrayNum = other.ArrayNum;
+        this->ArrayMax = this->ArrayNum;
+
+        for (auto i = 0; i < this->ArrayNum; ++i) {
+            this->Data[i] = other.Data[i];
+        }
+    }
+
+    void Add(T item) {
+        if (this->ArrayNum ==this->ArrayMax) {
+            int32_t NewMax = this->ArrayMax * 2;
+            if (NewMax < 4) {
+                NewMax = 4;
+            }
+
+            T* NewData = new T[NewMax];
+            memcpy(NewData, this->Data, sizeof(T) * this->ArrayMax);
+            delete[] this->Data;
+            this->Data = NewData;
+            this->ArrayMax = NewMax;
+        }
+
+        this->Data[this->ArrayNum] = item;
+        this->ArrayNum++;
+    }
+};
 
 class FString {
 public:
