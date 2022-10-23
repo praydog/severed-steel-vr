@@ -236,7 +236,6 @@ public:
 
         if (is_right_a_button_down) {
             state->Gamepad.wButtons |= XINPUT_GAMEPAD_A;
-        } else {
         }
 
         const auto b_button_action = vr->get_action_handle("/actions/default/in/BButton");
@@ -245,26 +244,48 @@ public:
 
         if (is_right_b_button_down) {
             state->Gamepad.wButtons |= XINPUT_GAMEPAD_X;
-        } else {
         }
 
         if (is_left_a_button_down) {
             state->Gamepad.wButtons |= XINPUT_GAMEPAD_B;
-        } else {
         }
 
         if (is_left_b_button_down) {
             state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
-        } else {
         }
 
         const auto joystick_click_action = vr->get_action_handle("/actions/default/in/JoystickClick");
         const auto is_left_joystick_click_down = vr->is_action_active(joystick_click_action, left_joystick_source);
+        const auto is_right_joystick_click_down = vr->is_action_active(joystick_click_action, right_joystick_source);
 
         if (is_left_joystick_click_down) {
+            // we don't map this to L3 because it's just jump
+            // so we bind it to the dive button instead as it's more convenient
             state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
         }
 
+        if (is_right_joystick_click_down) {
+            state->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
+        }
+
+        const auto trigger_action = vr->get_action_handle("/actions/default/in/Trigger");
+        const auto is_left_trigger_down = vr->is_action_active(trigger_action, left_joystick_source);
+        const auto is_right_trigger_down = vr->is_action_active(trigger_action, right_joystick_source);
+
+        if (is_left_trigger_down) {
+            state->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER; // not the same as LT
+        }
+
+        if (is_right_trigger_down) {
+            state->Gamepad.bRightTrigger = 255;
+        }
+
+        const auto grip_action = vr->get_action_handle("/actions/default/in/Grip");
+        const auto is_right_grip_down = vr->is_action_active(grip_action, right_joystick_source);
+
+        if (is_right_grip_down) {
+            state->Gamepad.bLeftTrigger = 255; // LT
+        }
 
         Vector2f left_joystick_axis{};
         vr->get_joystick_axis(left_joystick_source, (UEVR_Vector2f*)&left_joystick_axis);
@@ -283,10 +304,24 @@ public:
 
     void on_xinput_set_state(uint32_t* retval, uint32_t user_index, XINPUT_VIBRATION* vibration) override {
         PLUGIN_LOG_ONCE("XInput Set State");
+
+        auto vr = API::get()->param()->vr;
+
+        const auto right_joystick_source = vr->get_right_joystick_source();
+        const auto left_joystick_source = vr->get_left_joystick_source();
+        const auto left_amplitude = ((float)vibration->wLeftMotorSpeed / 65535.0f) * 5.0f;
+        const auto right_amplitude = ((float)vibration->wRightMotorSpeed / 65535.0f) * 5.0f;
+        const auto total_amp = (left_amplitude + right_amplitude);
+        vr->trigger_haptic_vibration(0.0f, 0.1f, 1.0f, left_amplitude, left_joystick_source);
+        vr->trigger_haptic_vibration(0.0f, 0.1f, 1.0f, right_amplitude, right_joystick_source);
     }
 
     APlayerCharacter_BP_Manny_C* get_pawn(UGameEngine* engine) {
         auto instance = engine->GameInstance;
+
+        if (instance != nullptr) {
+            m_num_localplayers = instance->LocalPlayers.Num();
+        }
 
         if (instance == nullptr || instance->LocalPlayers.Num() == 0) {
             return nullptr;
@@ -515,8 +550,6 @@ public:
                     ///////////////////////////////////
                     // first attempt at motion controls
                     ///////////////////////////////////
-                    auto weapon = pawn->CurrentlyEquippedWeapon;
-
                     Vector3f right_hand_position{};
                     glm::quat right_hand_rotation{};
                     vr->get_pose(vr->get_right_controller_index(), (UEVR_Vector3f*)&right_hand_position, (UEVR_Quaternionf*)&right_hand_rotation);
@@ -557,6 +590,8 @@ public:
 
                     left_hand_rotation = glm::normalize(left_hand_rotation * left_hand_offset_q);
                     auto left_hand_euler = glm::degrees(utility::math::euler_angles_from_steamvr(left_hand_rotation));
+                    
+                    auto weapon = pawn->CurrentlyEquippedWeapon;
 
                     if (weapon != nullptr) {
                         m_hands_exists = true;
@@ -590,10 +625,6 @@ public:
                         FHitResult r2{};
                         arm_cannon->K2_SetActorTransform(transform, false, r2, false);
                     }
-
-                    
-                    handle_input(pawn, *(Vector3f*)position, *(FRotator*)rotation);
-                    //update_weapon_traces(pawn);
 
                     // Hide the player model
                     if (pawn->Hands != nullptr) {
@@ -700,128 +731,6 @@ private:
         PLUGIN_LOG_ONCE("update_weapon_traces failed");
     }
 
-    void handle_input(APlayerCharacter_BP_Manny_C* pawn, Vector3f& position, FRotator& rotation) {
-        auto vr = API::get()->param()->vr;
-
-        const auto left_joystick_source = vr->get_left_joystick_source();
-        const auto right_joystick_source = vr->get_right_joystick_source();
-
-        Vector2f left_joystick_axis{};
-        vr->get_joystick_axis(left_joystick_source, (UEVR_Vector2f*)&left_joystick_axis);
-
-        Vector2f right_joystick_axis{};
-        vr->get_joystick_axis(right_joystick_source, (UEVR_Vector2f*)&right_joystick_axis);
-
-        /*if (left_joystick_axis.length() > 0.0f && m_was_forward_down) {
-            pawn->ForwardPressed();
-            m_was_forward_down = false;
-        } else {
-            pawn->ForwardReleased();
-            m_was_forward_down = true;
-        }*/
-
-        const auto rot_flat_q = utility::math::flatten(glm::quat{glm::yawPitchRoll(
-            glm::radians(-rotation.Yaw),
-            glm::radians(rotation.Pitch),
-            glm::radians(-rotation.Roll))
-        });
-
-        auto fwd = rot_flat_q * glm::vec3{1.0f, 0.0f, 0.0f};
-
-        const auto quat_to_ue4 = glm::quat{Matrix4x4f {
-            0, 0, -1, 0,
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 0, 1
-        }};
-
-
-        // rotate left joystick axis by the player's rotation
-        const auto corrected_left_joystick = quat_to_ue4 * rot_flat_q * Vector3f{-left_joystick_axis.x, 0.0f, left_joystick_axis.y};
-
-        //pawn->AddMovementInput(*(FVector*)&corrected_left_joystick, 1.0f, false);
-        /*pawn->GetMovementComponent()->AddInputVector(*(FVector*)&corrected_left_joystick, false);
-
-        FHitResult r{};
-        pawn->GetFirstPersonCamera()->K2_AddLocalRotation(FRotator{0.0f, right_joystick_axis.x, 0.0f}, false, r, false);*/
-
-        const auto a_button_action = vr->get_action_handle("/actions/default/in/AButton");
-        const auto is_right_a_button_down = vr->is_action_active(a_button_action, right_joystick_source);
-        const auto is_left_a_button_down = vr->is_action_active(a_button_action, left_joystick_source);
-
-        if (is_right_a_button_down) {
-            //pawn->bPressedJump = true;
-        } else {
-
-        }
-
-        /*if (is_left_a_button_down && !m_was_left_a_button_down) {
-            pawn->KickSlidePressedController();
-            m_was_left_a_button_down = true;
-        } else if (!is_left_a_button_down && m_was_left_a_button_down) {
-            pawn->KickSlideReleasedController();
-            m_was_left_a_button_down = false;
-        }*/
-
-        const auto b_button_action = vr->get_action_handle("/actions/default/in/BButton");
-        const auto is_right_b_button_down = vr->is_action_active(b_button_action, right_joystick_source);
-        const auto is_left_b_button_down = vr->is_action_active(b_button_action, left_joystick_source);
-
-        /*if (is_left_b_button_down && !m_was_left_b_button_down) {
-            pawn->DiveController();
-            m_was_left_b_button_down = true;
-        } else if (!is_left_b_button_down && m_was_left_b_button_down) {
-            pawn->DiveReleased();
-            m_was_left_b_button_down = false;
-        }*/
-
-        /*if (is_right_b_button_down) {
-            pawn->PickupCallPressedController();
-        }*/
-
-        const auto grip_action = vr->get_action_handle("/actions/default/in/Grip");
-        const auto is_right_grip_down = vr->is_action_active(grip_action, right_joystick_source);
-
-        if (is_right_grip_down) {
-            pawn->EnterSlowMo();
-            m_was_right_grip_down = true;
-        } else if (!is_right_grip_down && m_was_right_grip_down) {
-            pawn->LeaveSlowMo();
-            m_was_right_grip_down = false;
-        }
-        
-        const auto joystick_click_action = vr->get_action_handle("/actions/default/in/JoystickClick");
-        const auto is_right_joystick_click_down = vr->is_action_active(joystick_click_action, right_joystick_source);
-
-        if (is_right_joystick_click_down && !m_was_right_joystick_click_down) {
-            pawn->KickPressed();
-            m_was_right_joystick_click_down = true;
-        } else if (!is_right_joystick_click_down && m_was_right_joystick_click_down) {
-            pawn->KickReleased();
-            m_was_right_joystick_click_down = false;
-        }
-
-        const auto trigger_action = vr->get_action_handle("/actions/default/in/Trigger");
-        const auto is_left_trigger_down = vr->is_action_active(trigger_action, left_joystick_source);
-        const auto is_right_trigger_down = vr->is_action_active(trigger_action, right_joystick_source);
-
-        if (is_left_trigger_down && !m_was_left_trigger_down) {
-            pawn->ShootCannonGamepadPressed();
-            m_was_left_trigger_down = true;
-        } else {
-            pawn->ShootCannonGamepadReleased();
-            m_was_left_trigger_down = false;
-        }
-
-        if (is_right_trigger_down && !m_was_right_trigger_down) {
-            pawn->TriggerDownController();
-            m_was_right_trigger_down = true;
-        } else if (!is_right_trigger_down && m_was_right_trigger_down) {
-            pawn->TriggerUpController();
-            m_was_right_trigger_down = false;
-        }
-    }
-
     bool m_was_left_a_button_down{false};
     bool m_was_left_b_button_down{false};
     bool m_was_right_grip_down{false};
@@ -879,6 +788,7 @@ private:
             ImGui::Text("Last Pawn: 0x%p", (uintptr_t)m_last_pawn);
             ImGui::Text("Last Weapon: 0x%p", (uintptr_t)m_last_weapon);
             ImGui::Text("Last Fired Actor: 0x%p", (uintptr_t)m_last_fired_actor);
+            ImGui::Text("Num localplayers: %i", m_num_localplayers);
 
             ImGui::End();
         }
@@ -891,6 +801,7 @@ private:
     bool m_initialized{false};
     bool m_player_exists{false};
     bool m_hands_exists{false};
+    uint32_t m_num_localplayers{0};
 
     UGameEngine* m_engine{};
     UWorld* m_world{};
