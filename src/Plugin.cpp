@@ -35,7 +35,7 @@
 
 #include <safetyhook/Factory.hpp>
 #include <safetyhook/MidHook.hpp>
-#include <sdk/Math.hpp>
+#include "Math.hpp"
 #include <utility/Module.hpp>
 #include <utility/Scan.hpp>
 

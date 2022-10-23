@@ -26,13 +26,58 @@ if ("${CMAKE_BUILD_TYPE}" MATCHES "Release")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
     message(NOTICE "Building in Release mode")
 endif()
-
-add_subdirectory(dependencies/submodules/ue4poc)
 """
+
+# used by kananlib and safetyhook
+[fetch-content.bddisasm]
+git = "https://github.com/bitdefender/bddisasm"
+tag = "v1.34.10"
 
 [fetch-content.safetyhook]
 git = "https://github.com/cursey/safetyhook"
 tag = "e175896c67abf49360acafe8879205a138fe6b2b"
+
+[target.imgui]
+type = "static"
+sources = ["dependencies/submodules/imgui/*.cpp"]
+include-directories = ["dependencies/submodules/imgui", "src/imgui/"]
+compile-definitions = [
+    "IMGUI_USER_CONFIG=\"${CMAKE_CURRENT_SOURCE_DIR}/src/imgui/plugin_imconfig.hpp\"",
+]
+
+# used by kananlib
+[fetch-content.spdlog]
+git = "https://github.com/gabime/spdlog"
+tag = "76fb40d95455f249bd70824ecfcae7a8f0930fa3"
+
+[target.glm_static]
+type = "static"
+sources = ["dependencies/submodules/glm/glm/**.cpp"]
+include-directories = ["dependencies/submodules/glm"]
+
+[fetch-content.kananlib]
+git = "https://github.com/cursey/kananlib"
+tag = "main"
+
+[target.uevr_api]
+type = "interface"
+headers = ["dependencies/uevr_api/**.hpp", "dependencies/uevr_api/**.h"]
+include-directories = ["dependencies/uevr_api/include"]
+
+[target.steelsdk]
+type = "static"
+sources = ["dependencies/steelsdk/**.cpp", "dependencies/steelsdk/**.c"]
+headers = ["dependencies/steelsdk/**.hpp", "dependencies/steelsdk/**.h"]
+compile-options = ["/EHa", "/bigobj", "/MP"]
+compile-features = ["cxx_std_20"]
+include-directories = [
+    "dependencies/steelsdk/src",
+    "dependencies/steelsdk/"
+]
+link-libraries = [
+    "kananlib",
+    "uevr_api"
+]
 
 [target.steel]
 type = "shared"
@@ -43,18 +88,16 @@ include-directories = [
     "src/", 
     "include/"
 ]
-
 compile-options = ["/GS-", "/bigobj", "/EHa", "/MP"]
 compile-features = ["cxx_std_20"]
-compile-definitions = [
-
-]
+compile-definitions = []
 link-libraries = [
     "kananlib",
-    "plugin_renderlib",
+    "steelsdk",
+    "uevr_api",
     "glm_static",
-    "sdk",
-    "safetyhook"
+    "safetyhook",
+    "imgui"
 ]
 cmake-after = """
 target_compile_definitions(steel PUBLIC 
