@@ -12312,6 +12312,7 @@ list(APPEND steel_SOURCES
 	"src/rendering/d3d11.cpp"
 	"src/rendering/d3d12.cpp"
 	"src/Math.hpp"
+	"src/Plugin.hpp"
 	"src/imgui/font_robotomedium.hpp"
 	"src/imgui/plugin_imconfig.hpp"
 	"src/rendering/d3d11.hpp"
