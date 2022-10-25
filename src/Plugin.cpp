@@ -207,7 +207,7 @@ void SteelPlugin::on_device_reset() {
     m_initialized = false;
 }
 
-bool SteelPlugin::on_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) { 
+bool SteelPlugin::on_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
 
     return !ImGui::GetIO().WantCaptureMouse && !ImGui::GetIO().WantCaptureKeyboard;
@@ -215,6 +215,14 @@ bool SteelPlugin::on_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
 
 void SteelPlugin::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XINPUT_STATE* state) {
     PLUGIN_LOG_ONCE("XInput Get State");
+
+    if (user_index != 0) {
+        return;
+    }
+
+    state->Gamepad.wButtons = 0; // reset because the injector sets some generic inputs that are not suitable for this game
+    state->Gamepad.bRightTrigger = 0;
+    state->Gamepad.bLeftTrigger = 0;
 
     auto vr = API::get()->param()->vr;
 
@@ -713,7 +721,7 @@ void SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
     m_right_hand_weapon_hr = {};
     UKismetSystemLibrary::LineTraceSingle(m_world, start, *(FVector*)&end_glm, ETraceTypeQuery::TraceTypeQuery16, true, *(TArray<AActor*>*)&ignore_actors, EDrawDebugTrace::None, m_right_hand_weapon_hr, true, color, color, 0.0f);
 } catch (...) {
-    PLUGIN_LOG_ONCE("update_weapon_traces failed");
+    PLUGIN_LOG_ONCE_ERROR("update_weapon_traces failed");
 }
 
 bool SteelPlugin::initialize_imgui() {
@@ -724,7 +732,7 @@ bool SteelPlugin::initialize_imgui() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
-    ImGui::GetIO().IniFilename = "example_dll_ui.ini";
+    ImGui::GetIO().IniFilename = "severed_steel_ui.ini";
 
     const auto renderer_data = API::get()->param()->renderer;
 

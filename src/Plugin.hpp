@@ -19,6 +19,13 @@
         API::get()->log_info(__VA_ARGS__); \
     } }
 
+#define PLUGIN_LOG_ONCE_ERROR(...) { \
+    static bool _logged_ = false; \
+    if (!_logged_) { \
+        _logged_ = true; \
+        API::get()->log_error(__VA_ARGS__); \
+    } }
+
 // Global accessor for our plugin.
 class SteelPlugin;
 extern std::unique_ptr<SteelPlugin> g_plugin;
