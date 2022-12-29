@@ -298,6 +298,14 @@ void SteelPlugin::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XIN
     state->Gamepad.sThumbRX = (int16_t)(right_joystick_axis.x * 32767.0f);
     state->Gamepad.sThumbRY = (int16_t)(right_joystick_axis.y * 32767.0f);
 
+    if (right_joystick_axis.y <= -0.9f) {
+        state->Gamepad.wButtons |= XINPUT_GAMEPAD_B; // Slide
+    }
+
+    if (right_joystick_axis.y >= 0.9f) {
+        state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y; // Dive
+    }
+
     *retval = ERROR_SUCCESS;
 }
 
