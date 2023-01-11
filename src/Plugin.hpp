@@ -67,7 +67,7 @@ private:
 
     FRotator facegun(class ::APlayerCharacter_BP_Manny_C* pawn, FRotator& real_rot);
 
-    void update_weapon_traces(class ::APlayerCharacter_BP_Manny_C* pawn);
+    bool update_weapon_traces(class ::APlayerCharacter_BP_Manny_C* pawn);
     bool on_resolve_impact_internal(class ::AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC);
 
     static bool on_resolve_impact(AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {

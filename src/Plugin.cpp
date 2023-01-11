@@ -30,6 +30,7 @@
 #include "steelsdk/UWorld.hpp"
 #include "steelsdk/UPawnMovementComponent.hpp"
 #include "steelsdk/UInputComponent.hpp"
+#include "steelsdk/UTYVCAnimInstance.hpp"
 
 #include <safetyhook/Factory.hpp>
 #include <safetyhook/MidHook.hpp>
@@ -216,15 +217,15 @@ bool SteelPlugin::on_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
 void SteelPlugin::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XINPUT_STATE* state) {
     PLUGIN_LOG_ONCE("XInput Get State");
 
-    if (user_index != 0) {
+    auto vr = API::get()->param()->vr;
+
+    if (user_index != 0 || !vr->is_using_controllers()) {
         return;
     }
 
     state->Gamepad.wButtons = 0; // reset because the injector sets some generic inputs that are not suitable for this game
     state->Gamepad.bRightTrigger = 0;
     state->Gamepad.bLeftTrigger = 0;
-
-    auto vr = API::get()->param()->vr;
 
     const auto right_joystick_source = vr->get_right_joystick_source();
     const auto left_joystick_source = vr->get_left_joystick_source();
@@ -313,6 +314,10 @@ void SteelPlugin::on_xinput_set_state(uint32_t* retval, uint32_t user_index, XIN
     PLUGIN_LOG_ONCE("XInput Set State");
 
     auto vr = API::get()->param()->vr;
+
+    if (!vr->is_using_controllers()) {
+        return;
+    }
 
     const auto right_joystick_source = vr->get_right_joystick_source();
     const auto left_joystick_source = vr->get_left_joystick_source();
@@ -557,85 +562,87 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
                 ///////////////////////////////////
                 // first attempt at motion controls
                 ///////////////////////////////////
-                Vector3f right_hand_position{};
-                glm::quat right_hand_rotation{};
-                vr->get_pose(vr->get_right_controller_index(), (UEVR_Vector3f*)&right_hand_position, (UEVR_Quaternionf*)&right_hand_rotation);
+                if (vr->is_using_controllers()) {
+                    Vector3f right_hand_position{};
+                    glm::quat right_hand_rotation{};
+                    vr->get_pose(vr->get_right_controller_index(), (UEVR_Vector3f*)&right_hand_position, (UEVR_Quaternionf*)&right_hand_rotation);
 
-                Vector3f left_hand_position{};
-                glm::quat left_hand_rotation{};
-                vr->get_pose(vr->get_left_controller_index(), (UEVR_Vector3f*)&left_hand_position, (UEVR_Quaternionf*)&left_hand_rotation);
+                    Vector3f left_hand_position{};
+                    glm::quat left_hand_rotation{};
+                    vr->get_pose(vr->get_left_controller_index(), (UEVR_Vector3f*)&left_hand_position, (UEVR_Quaternionf*)&left_hand_rotation);
 
-                right_hand_position = glm::vec3{rotation_offset * (right_hand_position - hmd_origin)};
-                left_hand_position = glm::vec3{rotation_offset * (left_hand_position - hmd_origin)};
+                    right_hand_position = glm::vec3{rotation_offset * (right_hand_position - hmd_origin)};
+                    left_hand_position = glm::vec3{rotation_offset * (left_hand_position - hmd_origin)};
 
-                right_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (right_hand_position * world_to_meters));
-                left_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (left_hand_position * world_to_meters));
+                    right_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (right_hand_position * world_to_meters));
+                    left_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (left_hand_position * world_to_meters));
 
-                right_hand_position = *(Vector3f*)position - right_hand_position;
-                left_hand_position = *(Vector3f*)position - left_hand_position;
+                    right_hand_position = *(Vector3f*)position - right_hand_position;
+                    left_hand_position = *(Vector3f*)position - left_hand_position;
 
-                right_hand_rotation = rotation_offset * right_hand_rotation;
-                right_hand_rotation = (glm::normalize(view_quat_inverse_flat) * right_hand_rotation);
+                    right_hand_rotation = rotation_offset * right_hand_rotation;
+                    right_hand_rotation = (glm::normalize(view_quat_inverse_flat) * right_hand_rotation);
 
-                left_hand_rotation = rotation_offset * left_hand_rotation;
-                left_hand_rotation = (glm::normalize(view_quat_inverse_flat) * left_hand_rotation);
+                    left_hand_rotation = rotation_offset * left_hand_rotation;
+                    left_hand_rotation = (glm::normalize(view_quat_inverse_flat) * left_hand_rotation);
 
-                const auto right_hand_offset_q = glm::quat{glm::yawPitchRoll(
-                    glm::radians(m_right_hand_rotation_offset.Yaw),
-                    glm::radians(m_right_hand_rotation_offset.Pitch),
-                    glm::radians(m_right_hand_rotation_offset.Roll))
-                };
+                    const auto right_hand_offset_q = glm::quat{glm::yawPitchRoll(
+                        glm::radians(m_right_hand_rotation_offset.Yaw),
+                        glm::radians(m_right_hand_rotation_offset.Pitch),
+                        glm::radians(m_right_hand_rotation_offset.Roll))
+                    };
 
-                const auto left_hand_offset_q = glm::quat{glm::yawPitchRoll(
-                    glm::radians(m_left_hand_rotation_offset.Yaw),
-                    glm::radians(m_left_hand_rotation_offset.Pitch),
-                    glm::radians(m_left_hand_rotation_offset.Roll))
-                };
+                    const auto left_hand_offset_q = glm::quat{glm::yawPitchRoll(
+                        glm::radians(m_left_hand_rotation_offset.Yaw),
+                        glm::radians(m_left_hand_rotation_offset.Pitch),
+                        glm::radians(m_left_hand_rotation_offset.Roll))
+                    };
 
-                right_hand_rotation = glm::normalize(right_hand_rotation * right_hand_offset_q);
-                auto right_hand_euler = glm::degrees(utility::math::euler_angles_from_steamvr(right_hand_rotation));
+                    right_hand_rotation = glm::normalize(right_hand_rotation * right_hand_offset_q);
+                    auto right_hand_euler = glm::degrees(utility::math::euler_angles_from_steamvr(right_hand_rotation));
 
-                left_hand_rotation = glm::normalize(left_hand_rotation * left_hand_offset_q);
-                auto left_hand_euler = glm::degrees(utility::math::euler_angles_from_steamvr(left_hand_rotation));
-                
-                auto weapon = pawn->CurrentlyEquippedWeapon;
+                    left_hand_rotation = glm::normalize(left_hand_rotation * left_hand_offset_q);
+                    auto left_hand_euler = glm::degrees(utility::math::euler_angles_from_steamvr(left_hand_rotation));
+                    
+                    auto weapon = pawn->CurrentlyEquippedWeapon;
 
-                if (weapon != nullptr) {
-                    m_hands_exists = true;
+                    if (weapon != nullptr) {
+                        m_hands_exists = true;
 
-                    FHitResult r1{};
-                    weapon->K2_SetActorLocation(*(FVector*)&right_hand_position, false, r1, false);
-                    weapon->K2_SetActorRotation(*(FRotator*)&right_hand_euler, false);
-                    auto transform = weapon->GetTransform();
-                    transform.Scale3D.X = 1.0f;
-                    transform.Scale3D.Y = 1.0f;
-                    transform.Scale3D.Z = 1.0f;
+                        FHitResult r1{};
+                        weapon->K2_SetActorLocation(*(FVector*)&right_hand_position, false, r1, false);
+                        weapon->K2_SetActorRotation(*(FRotator*)&right_hand_euler, false);
+                        auto transform = weapon->GetTransform();
+                        transform.Scale3D.X = 1.0f;
+                        transform.Scale3D.Y = 1.0f;
+                        transform.Scale3D.Z = 1.0f;
 
-                    FHitResult r2{};
-                    weapon->K2_SetActorTransform(transform, false, r1, false);
-                } else {
-                    m_hands_exists = false;
-                }
+                        FHitResult r2{};
+                        weapon->K2_SetActorTransform(transform, false, r1, false);
+                    } else {
+                        m_hands_exists = false;
+                    }
 
-                auto arm_cannon = pawn->ArmCannon;
+                    auto arm_cannon = pawn->ArmCannon;
 
-                if (arm_cannon != nullptr) {
-                    FHitResult r1{};
-                    arm_cannon->K2_SetActorLocation(*(FVector*)&left_hand_position, false, r1, false);
-                    arm_cannon->K2_SetActorRotation(*(FRotator*)&left_hand_euler, false);
+                    if (arm_cannon != nullptr) {
+                        FHitResult r1{};
+                        arm_cannon->K2_SetActorLocation(*(FVector*)&left_hand_position, false, r1, false);
+                        arm_cannon->K2_SetActorRotation(*(FRotator*)&left_hand_euler, false);
 
-                    auto transform = arm_cannon->GetTransform();
-                    transform.Scale3D.X = 1.0f;
-                    transform.Scale3D.Y = 1.0f;
-                    transform.Scale3D.Z = 1.0f;
+                        auto transform = arm_cannon->GetTransform();
+                        transform.Scale3D.X = 1.0f;
+                        transform.Scale3D.Y = 1.0f;
+                        transform.Scale3D.Z = 1.0f;
 
-                    FHitResult r2{};
-                    arm_cannon->K2_SetActorTransform(transform, false, r2, false);
-                }
+                        FHitResult r2{};
+                        arm_cannon->K2_SetActorTransform(transform, false, r2, false);
+                    }
 
-                // Hide the player model
-                if (pawn->Hands != nullptr) {
-                    pawn->Hands->SetHiddenInGame(true, false);
+                    // Hide the player model
+                    if (pawn->Hands != nullptr) {
+                        pawn->Hands->SetHiddenInGame(true, false);
+                    }
                 }
             }
 
@@ -688,21 +695,29 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
     }
 
     if (weapon->MuzzleFlashPointLight != nullptr) {
-        update_weapon_traces(pawn);
-        HitResult = m_right_hand_weapon_hr;
+        if (update_weapon_traces(pawn)) {
+            HitResult = m_right_hand_weapon_hr;
+        }
+
         //ctx.rdx = (uintptr_t)&m_right_hand_weapon_hr;
     }
 
     return call_orig();
 }
 
-void SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
+bool SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
     auto weapon = pawn->CurrentlyEquippedWeapon;
 
     if (weapon == nullptr || m_world == nullptr || weapon->MuzzleFlashPointLight == nullptr) {
-        return;
+        return false;
     }
     
+    const auto vr = API::get()->param()->vr;
+
+    if (!vr->is_using_controllers()) {
+        return false;
+    }
+
     const auto start = ((USceneComponent*)weapon->MuzzleFlashPointLight)->K2_GetComponentLocation();
     const auto& start_glm = *(glm::vec3*)&start;
 
@@ -728,8 +743,11 @@ void SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
     FLinearColor color{1.0f, 1.0f, 1.0f, 1.0f};
     m_right_hand_weapon_hr = {};
     UKismetSystemLibrary::LineTraceSingle(m_world, start, *(FVector*)&end_glm, ETraceTypeQuery::TraceTypeQuery16, true, *(TArray<AActor*>*)&ignore_actors, EDrawDebugTrace::None, m_right_hand_weapon_hr, true, color, color, 0.0f);
+
+    return true;
 } catch (...) {
     PLUGIN_LOG_ONCE_ERROR("update_weapon_traces failed");
+    return false;
 }
 
 bool SteelPlugin::initialize_imgui() {
