@@ -32,6 +32,9 @@ DECLARE_UEVR_HANDLE(UEVR_UGameEngineHandle);
 DECLARE_UEVR_HANDLE(UEVR_UEngineHandle);
 DECLARE_UEVR_HANDLE(UEVR_FSlateRHIRendererHandle);
 DECLARE_UEVR_HANDLE(UEVR_FViewportInfoHandle);
+DECLARE_UEVR_HANDLE(UEVR_UGameViewportClientHandle);
+DECLARE_UEVR_HANDLE(UEVR_FViewportHandle);
+DECLARE_UEVR_HANDLE(UEVR_FCanvasHandle);
 
 // OpenXR stuff
 DECLARE_UEVR_HANDLE(UEVR_XrInstance);
@@ -108,6 +111,7 @@ typedef void (*UEVR_OnXInputGetStateCb)(unsigned int*, unsigned int, void*); /* 
 typedef void (*UEVR_OnXInputSetStateCb)(unsigned int*, unsigned int, void*); /* retval, dwUserIndex, pVibration, read MSDN for details */
 typedef void (*UEVR_Engine_TickCb)(UEVR_UGameEngineHandle engine, float delta_seconds);
 typedef void (*UEVR_Slate_DrawWindow_RenderThreadCb)(UEVR_FSlateRHIRendererHandle renderer, UEVR_FViewportInfoHandle viewport_info);
+typedef void (*UEVR_ViewportClient_DrawCb)(UEVR_UGameViewportClientHandle viewport_client, UEVR_FViewportHandle viewport, UEVR_FCanvasHandle canvas);
 
 DECLARE_UEVR_HANDLE(UEVR_StereoRenderingDeviceHandle);
 /* the position and rotation must be converted to double format based on the is_double parameter. */
@@ -121,6 +125,7 @@ typedef bool (*UEVR_OnXInputSetStateFn)(UEVR_OnXInputSetStateCb);
 typedef bool (*UEVR_Engine_TickFn)(UEVR_Engine_TickCb);
 typedef bool (*UEVR_Slate_DrawWindow_RenderThreadFn)(UEVR_Slate_DrawWindow_RenderThreadCb);
 typedef bool (*UEVR_Stereo_CalculateStereoViewOffsetFn)(UEVR_Stereo_CalculateStereoViewOffsetCb);
+typedef bool (*UEVR_ViewportClient_DrawFn)(UEVR_ViewportClient_DrawCb);
 
 typedef void (*UEVR_PluginRequiredVersionFn)(UEVR_PluginVersion*);
 
@@ -146,6 +151,8 @@ typedef struct {
     UEVR_Slate_DrawWindow_RenderThreadFn on_post_slate_draw_window_render_thread;
     UEVR_Stereo_CalculateStereoViewOffsetFn on_pre_calculate_stereo_view_offset;
     UEVR_Stereo_CalculateStereoViewOffsetFn on_post_calculate_stereo_view_offset;
+    UEVR_ViewportClient_DrawFn on_pre_viewport_client_draw;
+    UEVR_ViewportClient_DrawFn on_post_viewport_client_draw;
 } UEVR_SDKCallbacks;
 
 typedef struct {
@@ -253,7 +260,10 @@ typedef struct {
     bool (*is_action_active)(UEVR_ActionHandle action, UEVR_InputSourceHandle source);
     void (*get_joystick_axis)(UEVR_InputSourceHandle source, UEVR_Vector2f* out_axis);
     void (*trigger_haptic_vibration)(float seconds_from_now, float duration, float frequency, float amplitude, UEVR_InputSourceHandle source);
+    /* if any controller action is active or has been active within certain previous timeframe */
     bool (*is_using_controllers)();
+
+    unsigned int (*get_lowest_xinput_index)();
 } UEVR_VRData;
 
 typedef struct {

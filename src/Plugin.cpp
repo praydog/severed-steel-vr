@@ -219,7 +219,7 @@ void SteelPlugin::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XIN
 
     auto vr = API::get()->param()->vr;
 
-    if (user_index != 0 || !vr->is_using_controllers()) {
+    if (vr->get_lowest_xinput_index() != user_index || !vr->is_using_controllers()) {
         return;
     }
 
