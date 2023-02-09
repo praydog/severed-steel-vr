@@ -759,6 +759,7 @@ bool SteelPlugin::initialize_imgui() {
     ImGui::CreateContext();
 
     ImGui::GetIO().IniFilename = "severed_steel_ui.ini";
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
     const auto renderer_data = API::get()->param()->renderer;
 
