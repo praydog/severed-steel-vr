@@ -796,6 +796,10 @@ bool SteelPlugin::initialize_imgui() {
 }
 
 void SteelPlugin::internal_frame() {
+    if (!API::get()->param()->functions->is_drawing_ui()) {
+        return;
+    }
+
     if (ImGui::Begin("Severed Steel")) {
         bool exists = m_player_exists;
         ImGui::Checkbox("Player exists", &exists);
