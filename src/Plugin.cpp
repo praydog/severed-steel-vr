@@ -217,9 +217,15 @@ bool SteelPlugin::on_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
 void SteelPlugin::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XINPUT_STATE* state) {
     PLUGIN_LOG_ONCE("XInput Get State");
 
-    auto vr = API::get()->param()->vr;
+    const auto param = API::get()->param();
+    const auto vr = param->vr;
 
     if (vr->get_lowest_xinput_index() != user_index || !vr->is_using_controllers()) {
+        return;
+    }
+
+    // dont do anything if we are drawing the ui in the framework.
+    if (param->functions->is_drawing_ui()) {
         return;
     }
 
