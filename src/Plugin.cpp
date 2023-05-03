@@ -397,6 +397,8 @@ FRotator SteelPlugin::facegun(APlayerCharacter_BP_Manny_C* pawn, FRotator& real_
                     glm::radians(-rot.Yaw),
                     glm::radians(rot.Pitch),
                     glm::radians(-rot.Roll)));
+    
+    const auto vqi_norm = glm::normalize(component_q);
 
     glm::quat hmd_q{};
     Vector3f pos{};
@@ -408,22 +410,27 @@ FRotator SteelPlugin::facegun(APlayerCharacter_BP_Manny_C* pawn, FRotator& real_
     vr->get_rotation_offset((UEVR_Quaternionf*)&rot_offset);
 
     //hmd_q = rot_offset * hmd_q;
-    const auto hmd_flatq = utility::math::flatten(hmd_q);
+   /* const auto hmd_flatq = utility::math::flatten(hmd_q);
 
     const auto delta_towards_q = glm::normalize(hmd_flatq * glm::inverse(m_last_vr_rotation));
     m_last_vr_rotation = hmd_flatq;
 
-    const auto hmd_no_forward = glm::inverse(hmd_flatq) * hmd_q;
-    component_q = glm::normalize(delta_towards_q * component_q * hmd_no_forward);
+    const auto hmd_no_forward = glm::inverse(hmd_flatq) * hmd_q;*/
 
-    const auto component_forward_q = utility::math::to_quat(component_q * Vector3f{ 0.0f, 0.0f, 1.0f });
+    const auto current_hmd_rotation = glm::normalize(rot_offset * hmd_q);
+    const auto new_rotation = glm::normalize(vqi_norm * current_hmd_rotation);
+    const auto new_rotation_flat = utility::math::flatten(new_rotation);
+    const auto angles = glm::degrees(utility::math::euler_angles_from_steamvr(new_rotation));
 
-    const auto angles = glm::degrees(utility::math::euler_angles_from_steamvr(component_forward_q));
+    //component_q = glm::normalize(delta_towards_q * component_q * hmd_no_forward);
+    //const auto component_forward_q = utility::math::to_quat(component_q * Vector3f{ 0.0f, 0.0f, 1.0f });
+
+    //const auto angles = glm::degrees(utility::math::euler_angles_from_steamvr(component_forward_q));
     rot.Yaw = angles.y;
     rot.Pitch = angles.x;
     rot.Roll = angles.z;
     
-    const auto angles_real = glm::degrees(utility::math::euler_angles_from_steamvr(component_q));
+    const auto angles_real = glm::degrees(utility::math::euler_angles_from_steamvr(new_rotation_flat));
     real_rot.Yaw = angles_real.y;
     real_rot.Pitch = angles_real.x;
     real_rot.Roll = angles_real.z;
@@ -432,7 +439,8 @@ FRotator SteelPlugin::facegun(APlayerCharacter_BP_Manny_C* pawn, FRotator& real_
     pawn->GetFirstPersonCamera()->K2_SetWorldRotation(rot, false, r, false);
 
     hmd_q = utility::math::flatten(glm::inverse(hmd_q));
-    vr->set_rotation_offset((UEVR_Quaternionf*)&hmd_q);
+    //vr->set_rotation_offset((UEVR_Quaternionf*)&hmd_q);
+    vr->recenter_view();
     //pawn->K2_SetActorRotation(rot, false);
 
     return rot;
@@ -481,14 +489,8 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
         m_last_pos_svo = *(Vector3f*)position;
     }
 
-    rotation->pitch = 0.0f;
-    rotation->roll = 0.0f;
-}
-
-void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDeviceHandle, int view_index, float world_to_meters, 
-                                                       UEVR_Vector3f* position, UEVR_Rotatorf* rotation, bool is_double)
-{
-    PLUGIN_LOG_ONCE("Post Calculate Stereo View Offset");
+    //rotation->pitch = 0.0f;
+    //rotation->roll = 0.0f;
 
     if (this->m_player_exists) {
         auto pawn = get_pawn(m_engine);
@@ -499,9 +501,9 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
             *(Vector3f*)position = m_last_pos_svo;
 
             if ((view_index + 1) % 2 == 0) {
-                rotation->pitch = 0.0f;
-                rotation->roll = 0.0f;
-                rotation->yaw = m_prev_yaw_svo;
+                //rotation->pitch = 0.0f;
+                //rotation->roll = 0.0f;
+                //rotation->yaw = m_prev_yaw_svo;
                 facegun(pawn, *(FRotator*)rotation);
 
                 m_facegun_rotator = *(FRotator*)rotation;
@@ -551,11 +553,11 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
 
             const auto offset1 = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (pos * world_to_meters));
             const auto offset2 = quat_to_ue4 * (glm::normalize(view_quat_inverse) * (eye_offset * world_to_meters));
-            *(Vector3f*)position -= offset1;
+            //*(Vector3f*)position -= offset1;
 
             if ((view_index + 1) % 2 == 0) {
                 const auto actor_position = pawn->K2_GetActorLocation();
-                const auto delta_move = *(Vector3f*)position - m_last_pos_svo;
+                const auto delta_move = offset1 * -1.0f;
                 const auto adjusted_position = Vector3f {
                     actor_position.X + delta_move.x,
                     actor_position.Y + delta_move.y,
@@ -568,6 +570,8 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
                 standing_origin.x = hmd_origin.x;
                 standing_origin.z = hmd_origin.z;
                 vr->set_standing_origin((UEVR_Vector3f*)&standing_origin);
+
+                const auto final_position = *(Vector3f*)position - offset1;
 
                 ///////////////////////////////////
                 // first attempt at motion controls
@@ -587,8 +591,8 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
                     right_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (right_hand_position * world_to_meters));
                     left_hand_position = quat_to_ue4 * (glm::normalize(view_quat_inverse_flat) * (left_hand_position * world_to_meters));
 
-                    right_hand_position = *(Vector3f*)position - right_hand_position;
-                    left_hand_position = *(Vector3f*)position - left_hand_position;
+                    right_hand_position = final_position - right_hand_position;
+                    left_hand_position = final_position - left_hand_position;
 
                     right_hand_rotation = rotation_offset * right_hand_rotation;
                     right_hand_rotation = (glm::normalize(view_quat_inverse_flat) * right_hand_rotation);
@@ -657,9 +661,15 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
             }
 
             // Eye offset. Apply it at the very end so the eye itself doesn't get used as the actor's position, but rather the center of the head.
-            *(Vector3f*)position -= offset2;
+            //*(Vector3f*)position -= offset2;
         }
     }
+}
+
+void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDeviceHandle, int view_index, float world_to_meters, 
+                                                       UEVR_Vector3f* position, UEVR_Rotatorf* rotation, bool is_double)
+{
+    PLUGIN_LOG_ONCE("Post Calculate Stereo View Offset");
 }
 
 bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
