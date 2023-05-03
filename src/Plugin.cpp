@@ -238,17 +238,19 @@ void SteelPlugin::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XIN
     const auto right_joystick_source = vr->get_right_joystick_source();
     const auto left_joystick_source = vr->get_left_joystick_source();
 
-    const auto a_button_action = vr->get_action_handle("/actions/default/in/AButton");
-    const auto is_right_a_button_down = vr->is_action_active(a_button_action, right_joystick_source);
-    const auto is_left_a_button_down = vr->is_action_active(a_button_action, left_joystick_source);
+    const auto a_button_action_left = vr->get_action_handle("/actions/default/in/AButtonLeft");
+    const auto a_button_action_right = vr->get_action_handle("/actions/default/in/AButtonRight");
+    const auto is_right_a_button_down = vr->is_action_active_any_joystick(a_button_action_right);
+    const auto is_left_a_button_down = vr->is_action_active_any_joystick(a_button_action_left);
 
     if (is_right_a_button_down) {
         state->Gamepad.wButtons |= XINPUT_GAMEPAD_A;
     }
 
-    const auto b_button_action = vr->get_action_handle("/actions/default/in/BButton");
-    const auto is_right_b_button_down = vr->is_action_active(b_button_action, right_joystick_source);
-    const auto is_left_b_button_down = vr->is_action_active(b_button_action, left_joystick_source);
+    const auto b_button_action_left = vr->get_action_handle("/actions/default/in/BButtonLeft");
+    const auto b_button_action_right = vr->get_action_handle("/actions/default/in/BButtonRight");
+    const auto is_right_b_button_down = vr->is_action_active_any_joystick(b_button_action_right);
+    const auto is_left_b_button_down = vr->is_action_active_any_joystick(b_button_action_left);
 
     if (is_right_b_button_down) {
         state->Gamepad.wButtons |= XINPUT_GAMEPAD_X;
@@ -573,11 +575,11 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
                 if (vr->is_using_controllers()) {
                     Vector3f right_hand_position{};
                     glm::quat right_hand_rotation{};
-                    vr->get_pose(vr->get_right_controller_index(), (UEVR_Vector3f*)&right_hand_position, (UEVR_Quaternionf*)&right_hand_rotation);
+                    vr->get_grip_pose(vr->get_right_controller_index(), (UEVR_Vector3f*)&right_hand_position, (UEVR_Quaternionf*)&right_hand_rotation);
 
                     Vector3f left_hand_position{};
                     glm::quat left_hand_rotation{};
-                    vr->get_pose(vr->get_left_controller_index(), (UEVR_Vector3f*)&left_hand_position, (UEVR_Quaternionf*)&left_hand_rotation);
+                    vr->get_grip_pose(vr->get_left_controller_index(), (UEVR_Vector3f*)&left_hand_position, (UEVR_Quaternionf*)&left_hand_rotation);
 
                     right_hand_position = glm::vec3{rotation_offset * (right_hand_position - hmd_origin)};
                     left_hand_position = glm::vec3{rotation_offset * (left_hand_position - hmd_origin)};
