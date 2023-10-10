@@ -496,7 +496,9 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
         auto pawn = get_pawn(m_engine);
 
         if (pawn != nullptr) {
-            m_last_weapon = pawn->CurrentlyEquippedWeapon;
+            auto weapon_ptr = (AWeaponBase**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"CurrentlyEquippedWeapon"));
+            auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
+            m_last_weapon = weapon;
 
             *(Vector3f*)position = m_last_pos_svo;
 
@@ -618,8 +620,6 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
                     left_hand_rotation = glm::normalize(left_hand_rotation * left_hand_offset_q);
                     auto left_hand_euler = glm::degrees(utility::math::euler_angles_from_steamvr(left_hand_rotation));
                     
-                    auto weapon = pawn->CurrentlyEquippedWeapon;
-
                     if (weapon != nullptr) {
                         m_hands_exists = true;
 
@@ -637,7 +637,8 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
                         m_hands_exists = false;
                     }
 
-                    auto arm_cannon = pawn->ArmCannon;
+                    auto arm_cannon_ptr = (AArmCannon**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"ArmCannon"));
+                    auto arm_cannon = arm_cannon_ptr != nullptr ? *arm_cannon_ptr : nullptr;
 
                     if (arm_cannon != nullptr) {
                         FHitResult r1{};
@@ -653,9 +654,12 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
                         arm_cannon->K2_SetActorTransform(transform, false, r2, false);
                     }
 
+                    auto hands_ptr = (USkeletalMeshComponent**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"Hands"));
+                    auto hands = hands_ptr != nullptr ? *hands_ptr : nullptr;
+
                     // Hide the player model
-                    if (pawn->Hands != nullptr) {
-                        pawn->Hands->SetHiddenInGame(true, false);
+                    if (hands != nullptr) {
+                        hands->SetHiddenInGame(true, false);
                     }
                 }
             }
@@ -708,13 +712,17 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
         return call_orig();
     }
 
-    auto weapon = pawn->CurrentlyEquippedWeapon;
+    // After
+    auto weapon_ptr = (AWeaponBase**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"CurrentlyEquippedWeapon"));
+    auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
 
     if (weapon == nullptr) {
         return call_orig();
     }
 
-    if (weapon->MuzzleFlashPointLight != nullptr) {
+    auto muzzle = (UPointLightComponent**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)weapon, L"MuzzleFlashPointLight"));
+
+    if (muzzle != nullptr && *muzzle != nullptr) {
         if (update_weapon_traces(pawn)) {
             HitResult = m_right_hand_weapon_hr;
         }
@@ -726,9 +734,13 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
 }
 
 bool SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
-    auto weapon = pawn->CurrentlyEquippedWeapon;
+    auto weapon_ptr = (AWeaponBase**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"CurrentlyEquippedWeapon"));
+    auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
 
-    if (weapon == nullptr || m_world == nullptr || weapon->MuzzleFlashPointLight == nullptr) {
+    auto muzzle_ptr = weapon != nullptr ? (UPointLightComponent**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)weapon, L"MuzzleFlashPointLight")) : nullptr;
+    auto muzzle = muzzle_ptr != nullptr ? *muzzle_ptr : nullptr;
+
+    if (weapon == nullptr || m_world == nullptr || muzzle == nullptr) {
         return false;
     }
     
@@ -738,10 +750,10 @@ bool SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
         return false;
     }
 
-    const auto start = ((USceneComponent*)weapon->MuzzleFlashPointLight)->K2_GetComponentLocation();
+    const auto start = ((USceneComponent*)muzzle)->K2_GetComponentLocation();
     const auto& start_glm = *(glm::vec3*)&start;
 
-    const auto rot = ((USceneComponent*)weapon->MuzzleFlashPointLight)->K2_GetComponentRotation();
+    const auto rot = ((USceneComponent*)muzzle)->K2_GetComponentRotation();
     const auto rot_glm = glm::quat{glm::yawPitchRoll(
         glm::radians(-rot.Yaw),
         glm::radians(rot.Pitch),
