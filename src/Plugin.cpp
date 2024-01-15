@@ -231,7 +231,7 @@ void SteelPlugin::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XIN
 
     // reset because the injector sets some generic inputs that are not suitable for this game
     // but dont remove the start button because we need it to open the menu
-    state->Gamepad.wButtons &= XINPUT_GAMEPAD_START;
+    state->Gamepad.wButtons &= (XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT);
     state->Gamepad.bRightTrigger = 0;
     state->Gamepad.bLeftTrigger = 0;
 
