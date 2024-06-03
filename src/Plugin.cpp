@@ -442,7 +442,6 @@ FRotator SteelPlugin::facegun(APlayerCharacter_BP_Manny_C* pawn, FRotator& real_
     return rot;
 }
 
-void SteelPlugin::on_pre_engine_tick(UEVR_UGameEngineHandle engine_handle, float delta) {
 void SteelPlugin::on_pre_engine_tick(API::UGameEngine* engine_handle, float delta) {
     PLUGIN_LOG_ONCE("Pre Engine Tick: %f", delta);
 
@@ -493,9 +492,15 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
         auto pawn = get_pawn(m_engine);
 
         if (pawn != nullptr) {
-            auto weapon_ptr = (AWeaponBase**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"CurrentlyEquippedWeapon"));
+            auto pawn_api = (API::UObject*)pawn;
+            auto weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"CurrentlyEquippedWeapon");
             auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
+
             m_last_weapon = weapon;
+
+            auto weapon_api = (API::UObject*)weapon;
+            auto mesh_ptr = weapon_api != nullptr ? weapon_api->get_property_data<USkeletalMeshComponent*>(L"GunMesh") : nullptr;
+            auto mesh = mesh_ptr != nullptr ? *mesh_ptr : nullptr;
 
             *(Vector3f*)position = m_last_pos_svo;
 
@@ -634,7 +639,7 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
                         m_hands_exists = false;
                     }
 
-                    auto arm_cannon_ptr = (AArmCannon**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"ArmCannon"));
+                    auto arm_cannon_ptr = pawn_api->get_property_data<AArmCannon*>(L"ArmCannon");
                     auto arm_cannon = arm_cannon_ptr != nullptr ? *arm_cannon_ptr : nullptr;
 
                     if (arm_cannon != nullptr) {
@@ -651,7 +656,7 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
                         arm_cannon->K2_SetActorTransform(transform, false, r2, false);
                     }
 
-                    auto hands_ptr = (USkeletalMeshComponent**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"Hands"));
+                    auto hands_ptr = pawn_api->get_property_data<USkeletalMeshComponent*>(L"Hands");
                     auto hands = hands_ptr != nullptr ? *hands_ptr : nullptr;
 
                     // Hide the player model
@@ -683,7 +688,7 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
             if (m_resolve_impact_depth > 10) {
                 return false;
             }
-            const auto result = m_resolve_impact_hook->call<bool>(mgr, &HitResult, Impact, FiredByPlayer, Shooter, &TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
+            const auto result = m_resolve_impact_hook.call<bool>(mgr, &HitResult, Impact, FiredByPlayer, Shooter, &TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
             --m_resolve_impact_depth;
             return result;
         } catch(...) {
@@ -710,14 +715,16 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
     }
 
     // After
-    auto weapon_ptr = (AWeaponBase**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"CurrentlyEquippedWeapon"));
+    auto pawn_api = (API::UObject*)pawn;
+    auto weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"CurrentlyEquippedWeapon");
     auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
 
     if (weapon == nullptr) {
         return call_orig();
     }
 
-    auto muzzle = (UPointLightComponent**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)weapon, L"MuzzleFlashPointLight"));
+    auto weapon_api = (API::UObject*)weapon;
+    auto muzzle = weapon_api->get_property_data<UPointLightComponent*>(L"MuzzleFlashPointLight");
 
     if (muzzle != nullptr && *muzzle != nullptr) {
         if (update_weapon_traces(pawn)) {
@@ -731,10 +738,12 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
 }
 
 bool SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
-    auto weapon_ptr = (AWeaponBase**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)pawn, L"CurrentlyEquippedWeapon"));
+    auto pawn_api = (API::UObject*)pawn;
+    auto weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"CurrentlyEquippedWeapon");
     auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
 
-    auto muzzle_ptr = weapon != nullptr ? (UPointLightComponent**)(API::get()->sdk()->uobject->get_property_data((UEVR_UObjectHandle)weapon, L"MuzzleFlashPointLight")) : nullptr;
+    auto weapon_api = (API::UObject*)weapon;
+    auto muzzle_ptr = weapon_api != nullptr ? weapon_api->get_property_data<UPointLightComponent*>(L"MuzzleFlashPointLight") : nullptr;
     auto muzzle = muzzle_ptr != nullptr ? *muzzle_ptr : nullptr;
 
     if (weapon == nullptr || m_world == nullptr || muzzle == nullptr) {
