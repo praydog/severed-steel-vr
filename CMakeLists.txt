@@ -36,6 +36,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MP")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 
 set(ASMJIT_STATIC ON CACHE BOOL "" FORCE)
+set(SAFETYHOOK_FETCH_ZYDIS ON)
 
 if ("${CMAKE_BUILD_TYPE}" MATCHES "Release")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MT")
@@ -62,12 +63,12 @@ FetchContent_Declare(bddisasm
 )
 FetchContent_MakeAvailable(bddisasm)
 
-message(STATUS "Fetching safetyhook (e175896c67abf49360acafe8879205a138fe6b2b)...")
+message(STATUS "Fetching safetyhook (b046e123dc69821f2c375161e0adef3c6d9c9db4)...")
 FetchContent_Declare(safetyhook
 	GIT_REPOSITORY
 		"https://github.com/cursey/safetyhook"
 	GIT_TAG
-		e175896c67abf49360acafe8879205a138fe6b2b
+		b046e123dc69821f2c375161e0adef3c6d9c9db4
 )
 FetchContent_MakeAvailable(safetyhook)
 
@@ -80,12 +81,12 @@ FetchContent_Declare(spdlog
 )
 FetchContent_MakeAvailable(spdlog)
 
-message(STATUS "Fetching kananlib (main)...")
+message(STATUS "Fetching kananlib (ab8e010a1b98287a8d69478908b5dcc098349782)...")
 FetchContent_Declare(kananlib
 	GIT_REPOSITORY
 		"https://github.com/cursey/kananlib"
 	GIT_TAG
-		main
+		ab8e010a1b98287a8d69478908b5dcc098349782
 )
 FetchContent_MakeAvailable(kananlib)
 

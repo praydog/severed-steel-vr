@@ -4,7 +4,7 @@
 
 #include <memory>
 #include <uevr/Plugin.hpp>
-#include <safetyhook/InlineHook.hpp>
+#include <safetyhook.hpp>
 
 #include "steelsdk/EImpactType.hpp"
 #include "steelsdk/FRotator.hpp"
@@ -45,8 +45,8 @@ public:
     void on_xinput_set_state(uint32_t* retval, uint32_t user_index, XINPUT_VIBRATION* vibration) override;
 
     // Game/Engine callbacks
-    void on_pre_engine_tick(UEVR_UGameEngineHandle engine, float delta) override;
-    void on_post_engine_tick(UEVR_UGameEngineHandle engine, float delta) override;
+    void on_pre_engine_tick(uevr::API::UGameEngine* engine, float delta) override;
+    void on_post_engine_tick(uevr::API::UGameEngine* engine, float delta) override;
     void on_pre_slate_draw_window(UEVR_FSlateRHIRendererHandle renderer, UEVR_FViewportInfoHandle viewport_info) override;
     void on_post_slate_draw_window(UEVR_FSlateRHIRendererHandle renderer, UEVR_FViewportInfoHandle viewport_info) override;
     void on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDeviceHandle, int view_index, float world_to_meters, 
@@ -74,7 +74,7 @@ private:
         return g_plugin->on_resolve_impact_internal(mgr, HitResult, Impact, FiredByPlayer, Shooter, TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
     }
 
-    std::unique_ptr<safetyhook::InlineHook> m_resolve_impact_hook{};
+    safetyhook::InlineHook m_resolve_impact_hook{};
 
     HWND m_wnd{};
     bool m_initialized{false};

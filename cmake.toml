@@ -12,6 +12,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MP")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 
 set(ASMJIT_STATIC ON CACHE BOOL "" FORCE)
+set(SAFETYHOOK_FETCH_ZYDIS ON)
 
 if ("${CMAKE_BUILD_TYPE}" MATCHES "Release")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MT")
@@ -35,7 +36,7 @@ tag = "v1.34.10"
 
 [fetch-content.safetyhook]
 git = "https://github.com/cursey/safetyhook"
-tag = "e175896c67abf49360acafe8879205a138fe6b2b"
+tag = "b046e123dc69821f2c375161e0adef3c6d9c9db4"
 
 [target.imgui]
 type = "static"
@@ -57,7 +58,7 @@ include-directories = ["dependencies/submodules/glm"]
 
 [fetch-content.kananlib]
 git = "https://github.com/cursey/kananlib"
-tag = "main"
+tag = "ab8e010a1b98287a8d69478908b5dcc098349782"
 
 [target.uevr_api]
 type = "interface"

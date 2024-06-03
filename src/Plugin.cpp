@@ -32,8 +32,7 @@
 #include "steelsdk/UInputComponent.hpp"
 #include "steelsdk/UTYVCAnimInstance.hpp"
 
-#include <safetyhook/Factory.hpp>
-#include <safetyhook/MidHook.hpp>
+#include <safetyhook.hpp>
 #include "Math.hpp"
 #include <utility/Module.hpp>
 #include <utility/Scan.hpp>
@@ -98,9 +97,6 @@ void SteelPlugin::on_initialize() {
 void SteelPlugin::hook_resolve_impact() {
     API::get()->log_info("Hooking AImpactManager::ResolveImpact");
 
-    auto factory = safetyhook::Factory::init();
-    auto builder = factory->acquire();
-
     auto item = find_uobject(15725550492628957501);
 
     if (item != nullptr) {
@@ -140,7 +136,7 @@ void SteelPlugin::hook_resolve_impact() {
                     API::get()->log_info("Found real function at %p", last_function_called);
 
                     const auto game = utility::get_executable();
-                    m_resolve_impact_hook = builder.create_inline((void*)last_function_called, &on_resolve_impact);
+                    m_resolve_impact_hook = safetyhook::create_inline((void*)last_function_called, &on_resolve_impact);
                 }
             }
         }
@@ -447,6 +443,7 @@ FRotator SteelPlugin::facegun(APlayerCharacter_BP_Manny_C* pawn, FRotator& real_
 }
 
 void SteelPlugin::on_pre_engine_tick(UEVR_UGameEngineHandle engine_handle, float delta) {
+void SteelPlugin::on_pre_engine_tick(API::UGameEngine* engine_handle, float delta) {
     PLUGIN_LOG_ONCE("Pre Engine Tick: %f", delta);
 
     m_engine = (UGameEngine*)engine_handle;
@@ -467,7 +464,7 @@ void SteelPlugin::on_pre_engine_tick(UEVR_UGameEngineHandle engine_handle, float
     //auto& rot = controller->TargetViewRotation;
 }
 
-void SteelPlugin::on_post_engine_tick(UEVR_UGameEngineHandle engine, float delta) {
+void SteelPlugin::on_post_engine_tick(API::UGameEngine* engine, float delta) {
     PLUGIN_LOG_ONCE("Post Engine Tick: %f", delta);
 }
 
