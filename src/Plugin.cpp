@@ -31,6 +31,9 @@
 #include "steelsdk/UPawnMovementComponent.hpp"
 #include "steelsdk/UInputComponent.hpp"
 #include "steelsdk/UTYVCAnimInstance.hpp"
+#include "steelsdk/UKismetMathLibrary.hpp"
+#include "steelsdk/USkeletalMesh.hpp"
+#include "steelsdk/USkeletalMeshSocket.hpp"
 
 #include <safetyhook.hpp>
 #include "Math.hpp"
@@ -485,9 +488,6 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
         m_last_pos_svo = *(Vector3f*)position;
     }
 
-    //rotation->pitch = 0.0f;
-    //rotation->roll = 0.0f;
-
     if (this->m_player_exists) {
         auto pawn = get_pawn(m_engine);
 
@@ -616,7 +616,10 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
                         glm::radians(m_left_hand_rotation_offset.Roll))
                     };
 
-                    right_hand_rotation = glm::normalize(right_hand_rotation * right_hand_offset_q);
+                    const auto extra_right_offset_q_ue4 = UKismetMathLibrary::Quat_MakeFromEuler(*(FVector*)&m_last_socket_rotator);
+                    const auto extra_right_offset_q = glm::quat{-extra_right_offset_q_ue4.W, extra_right_offset_q_ue4.X, -extra_right_offset_q_ue4.Z, extra_right_offset_q_ue4.Y};
+
+                    right_hand_rotation = glm::normalize(right_hand_rotation * extra_right_offset_q * right_hand_offset_q);
                     auto right_hand_euler = glm::degrees(utility::math::euler_angles_from_steamvr(right_hand_rotation));
 
                     left_hand_rotation = glm::normalize(left_hand_rotation * left_hand_offset_q);
@@ -627,7 +630,8 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
 
                         FHitResult r1{};
                         weapon->K2_SetActorLocation(*(FVector*)&right_hand_position, false, r1, false);
-                        weapon->K2_SetActorRotation(*(FRotator*)&right_hand_euler, false);
+                        //weapon->K2_SetActorRotation(*(FRotator*)&right_hand_euler, false);
+
                         auto transform = weapon->GetTransform();
                         transform.Scale3D.X = 1.0f;
                         transform.Scale3D.Y = 1.0f;
@@ -635,6 +639,32 @@ void SteelPlugin::on_pre_calculate_stereo_view_offset(UEVR_StereoRenderingDevice
 
                         FHitResult r2{};
                         weapon->K2_SetActorTransform(transform, false, r1, false);
+
+                        if (mesh != nullptr) {
+                            const auto weapon_mesh_attach_parent = (API::UObject*)mesh->GetAttachParent();
+
+                            if (weapon_mesh_attach_parent != nullptr) {
+                                const auto attach_socket_fname = mesh->GetAttachSocketName();
+                                const auto skeleton_ptr = weapon_mesh_attach_parent->get_property_data<USkeletalMesh*>(L"SkeletalMesh");
+                                const auto skeleton = skeleton_ptr != nullptr ? *skeleton_ptr : nullptr;
+
+                                if (skeleton != nullptr) {
+                                    const auto socket = skeleton->FindSocket(attach_socket_fname);
+
+                                    if (socket != nullptr) {
+                                        auto rot = socket->RelativeRotation;
+                                        rot.Pitch *= -1.0f;
+                                        rot.Yaw *= -1.0f;
+                                        rot.Roll *= -1.0f;
+
+                                        m_right_hand_rotation_offset = rot;
+
+                                        mesh->K2_SetWorldRotation(*(FRotator*)&right_hand_euler, false, r1, false);
+                                    }
+                                }
+
+                            }
+                        }
                     } else {
                         m_hands_exists = false;
                     }
@@ -837,6 +867,8 @@ void SteelPlugin::internal_frame() {
 
         ImGui::DragFloat3("Right Hand Rotation Offset", &m_right_hand_rotation_offset.Pitch);
         ImGui::DragFloat3("Left Hand Rotation Offset", &m_left_hand_rotation_offset.Pitch);
+
+        ImGui::DragFloat3("Right Hand Rotation Offset 2", &m_last_socket_rotator.Pitch);
 
         ImGui::Text("Last Pawn: 0x%p", (uintptr_t)m_last_pawn);
         ImGui::Text("Last Weapon: 0x%p", (uintptr_t)m_last_weapon);

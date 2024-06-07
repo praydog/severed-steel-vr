@@ -96,6 +96,8 @@ private:
     FRotator m_right_hand_rotation_offset{-68.0f, -8.0f, 24.0f};
     FRotator m_left_hand_rotation_offset{-90.0f, 0.0f, 0.0f};
 
+    FRotator m_last_socket_rotator{-245.0f, -173.0f, -18.0f};
+
     FHitResult m_right_hand_weapon_hr{};
 
     uint32_t m_resolve_impact_depth{0};
