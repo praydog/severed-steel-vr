@@ -31,3 +31,5 @@ build/*
 .vscode/*
 out/*
 .vs/*
+
+dependencies/steelsdk/*

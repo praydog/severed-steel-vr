@@ -5,6 +5,7 @@
 #include <memory>
 #include <uevr/Plugin.hpp>
 #include <safetyhook.hpp>
+#include <utility/PointerHook.hpp>
 
 #include "steelsdk/EImpactType.hpp"
 #include "steelsdk/FRotator.hpp"
@@ -64,17 +65,27 @@ private: // Getters
 
 private:
     void hook_resolve_impact();
+    void hook_arm_cannon_fire();
 
     FRotator facegun(class ::APlayerCharacter_BP_Manny_C* pawn, FRotator& real_rot);
 
     bool update_weapon_traces(class ::APlayerCharacter_BP_Manny_C* pawn);
-    bool on_resolve_impact_internal(class ::AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC);
+    bool on_resolve_impact_internal(class ::AImpactManager* mgr, FHitResult* HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector* TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC);
+    void* on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, void* frame, void* result);
 
-    static bool on_resolve_impact(AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
+    static bool on_resolve_impact(AImpactManager* mgr, FHitResult* HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector* TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
         return g_plugin->on_resolve_impact_internal(mgr, HitResult, Impact, FiredByPlayer, Shooter, TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
     }
 
-    safetyhook::InlineHook m_resolve_impact_hook{};
+    static void* on_arm_cannon_fire(uevr::API::UObject* arm_cannon, void* frame, void* result) {
+        return g_plugin->on_arm_cannon_fire_internal(arm_cannon, frame, result);
+    }
+
+
+    //safetyhook::InlineHook m_resolve_impact_hook{};
+    using ResolveImpactFn = decltype(&on_resolve_impact);
+    ResolveImpactFn m_resolve_impact_hook{};
+    int32_t m_resolve_impact_hook_id{};
 
     HWND m_wnd{};
     bool m_initialized{false};
@@ -101,4 +112,7 @@ private:
     FHitResult m_right_hand_weapon_hr{};
 
     uint32_t m_resolve_impact_depth{0};
+
+    std::unique_ptr<PointerHook> m_arm_cannon_fire_hook{};
+    bool m_hooked{false};
 };

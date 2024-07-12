@@ -36,7 +36,7 @@ SOFTWARE.
 #define UEVR_OUT
 
 #define UEVR_PLUGIN_VERSION_MAJOR 2
-#define UEVR_PLUGIN_VERSION_MINOR 18
+#define UEVR_PLUGIN_VERSION_MINOR 27
 #define UEVR_PLUGIN_VERSION_PATCH 0
 
 #define UEVR_RENDERER_D3D11 0
@@ -76,6 +76,12 @@ DECLARE_UEVR_HANDLE(UEVR_TArrayHandle);
 DECLARE_UEVR_HANDLE(UEVR_FMallocHandle);
 DECLARE_UEVR_HANDLE(UEVR_FRHITexture2DHandle);
 DECLARE_UEVR_HANDLE(UEVR_UScriptStructHandle);
+DECLARE_UEVR_HANDLE(UEVR_FArrayPropertyHandle);
+DECLARE_UEVR_HANDLE(UEVR_FBoolPropertyHandle);
+DECLARE_UEVR_HANDLE(UEVR_FStructPropertyHandle);
+DECLARE_UEVR_HANDLE(UEVR_FEnumPropertyHandle);
+DECLARE_UEVR_HANDLE(UEVR_UEnumHandle);
+DECLARE_UEVR_HANDLE(UEVR_FNumericPropertyHandle);
 
 /* OpenXR stuff */
 DECLARE_UEVR_HANDLE(UEVR_XrInstance);
@@ -205,6 +211,8 @@ typedef struct {
     bool (*is_drawing_ui)();
     bool (*remove_callback)(void* cb);
     unsigned int (*get_persistent_dir)(wchar_t* buffer, unsigned int buffer_size);
+    int (*register_inline_hook)(void* target, void* dst, void** original);
+    void (*unregister_inline_hook)(int hook_id);
 } UEVR_PluginFunctions;
 
 typedef struct {
@@ -282,12 +290,21 @@ typedef struct {
 
 typedef struct {
     int (*get_offset)(UEVR_FPropertyHandle prop);
+    unsigned long long (*get_property_flags)(UEVR_FPropertyHandle prop);
+    bool (*is_param)(UEVR_FPropertyHandle prop);
+    bool (*is_out_param)(UEVR_FPropertyHandle prop);
+    bool (*is_return_param)(UEVR_FPropertyHandle prop);
+    bool (*is_reference_param)(UEVR_FPropertyHandle prop);
+    bool (*is_pod)(UEVR_FPropertyHandle prop);
 } UEVR_FPropertyFunctions;
 
 typedef struct {
     UEVR_UStructHandle (*get_super_struct)(UEVR_UStructHandle klass);
     UEVR_FFieldHandle (*get_child_properties)(UEVR_UStructHandle klass);
     UEVR_UFunctionHandle (*find_function)(UEVR_UStructHandle klass, const wchar_t* name);
+    UEVR_FPropertyHandle (*find_property)(UEVR_UStructHandle klass, const wchar_t* name);
+    int (*get_properties_size)(UEVR_UStructHandle klass); /* size in bytes */
+    int (*get_min_alignment)(UEVR_UStructHandle klass);
 } UEVR_UStructFunctions;
 
 typedef struct {
@@ -340,6 +357,9 @@ typedef struct {
     UEVR_UObjectHookMotionControllerStateHandle (*get_motion_controller_state)(UEVR_UObjectHandle object);
 
     UEVR_UObjectHookMotionControllerStateFunctions* mc_state;
+
+    bool (*is_disabled)();
+    void (*set_disabled)(bool disabled);
 } UEVR_UObjectHookFunctions;
 
 typedef struct {
@@ -383,6 +403,30 @@ typedef struct {
 } UEVR_UScriptStructFunctions;
 
 typedef struct {
+    UEVR_FPropertyHandle (*get_inner)(UEVR_FArrayPropertyHandle prop);
+} UEVR_FArrayPropertyFunctions;
+
+typedef struct {
+    unsigned int (*get_field_size)(UEVR_FBoolPropertyHandle prop);
+    unsigned int (*get_byte_offset)(UEVR_FBoolPropertyHandle prop);
+    unsigned int (*get_byte_mask)(UEVR_FBoolPropertyHandle prop);
+    unsigned int (*get_field_mask)(UEVR_FBoolPropertyHandle prop);
+    bool (*get_value_from_object)(UEVR_FBoolPropertyHandle prop, void* object);
+    bool (*get_value_from_propbase)(UEVR_FBoolPropertyHandle prop, void* addr);
+    void (*set_value_in_object)(UEVR_FBoolPropertyHandle prop, void* object, bool value);
+    void (*set_value_in_propbase)(UEVR_FBoolPropertyHandle prop, void* addr, bool value);
+} UEVR_FBoolPropertyFunctions;
+
+typedef struct {
+    UEVR_UScriptStructHandle (*get_struct)(UEVR_FStructPropertyHandle prop);
+} UEVR_FStructPropertyFunctions;
+
+typedef struct {
+    UEVR_FNumericPropertyHandle (*get_underlying_prop)(UEVR_FEnumPropertyHandle prop);
+    UEVR_UEnumHandle (*get_enum)(UEVR_FEnumPropertyHandle prop);
+} UEVR_FEnumPropertyFunctions;
+
+typedef struct {
     const UEVR_SDKFunctions* functions;
     const UEVR_SDKCallbacks* callbacks;
     const UEVR_UObjectFunctions* uobject;
@@ -401,6 +445,10 @@ typedef struct {
     const UEVR_FFakeStereoRenderingHookFunctions* stereo_hook;
     const UEVR_FRHITexture2DFunctions* frhitexture2d;
     const UEVR_UScriptStructFunctions* uscriptstruct;
+    const UEVR_FArrayPropertyFunctions* farrayproperty;
+    const UEVR_FBoolPropertyFunctions* fboolproperty;
+    const UEVR_FStructPropertyFunctions* fstructproperty;
+    const UEVR_FEnumPropertyFunctions* fenumproperty;
 } UEVR_SDKData;
 
 DECLARE_UEVR_HANDLE(UEVR_IVRSystem);
@@ -521,6 +569,11 @@ typedef struct {
     bool (*is_snap_turn_enabled)();
     void (*set_snap_turn_enabled)(bool enabled);
     void (*set_decoupled_pitch_enabled)(bool enabled);
+
+    void (*set_mod_value)(const char* key, const char* value);
+    void (*get_mod_value)(const char* key, char* value, unsigned int value_size);
+    void (*save_config)();
+    void (*reload_config)();
 } UEVR_VRData;
 
 typedef struct {

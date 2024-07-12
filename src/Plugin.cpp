@@ -78,9 +78,6 @@ FName fname_from_chars(std::wstring_view chars) {
 
 // Called on unload
 SteelPlugin::~SteelPlugin() {
-    if (m_resolve_impact_hook) {
-        m_resolve_impact_hook.reset();
-    }
 }
 
 void SteelPlugin::on_dllmain() {
@@ -93,8 +90,6 @@ void SteelPlugin::on_initialize() {
     API::get()->log_error("%s %s", "Hello", "error");
     API::get()->log_warn("%s %s", "Hello", "warning");
     API::get()->log_info("%s %s", "Hello", "info");
-
-    hook_resolve_impact();
 }
 
 void SteelPlugin::hook_resolve_impact() {
@@ -103,10 +98,11 @@ void SteelPlugin::hook_resolve_impact() {
     auto item = find_uobject(15725550492628957501);
 
     if (item != nullptr) {
-        auto obj = (UFunction*)(item->Object);
+        auto obj = (API::UFunction*)item->Object;
 
         if (obj != nullptr) {
-            const auto func_wrapper = *(void**)((uintptr_t)obj + sizeof(UStruct) + 0x28);
+            //const auto func_wrapper = *(void**)((uintptr_t)obj + sizeof(UStruct) + 0x28);
+            const auto func_wrapper = obj->get_native_function();
 
             if (func_wrapper != nullptr) {
                 // Scan for the real function using disassembly
@@ -139,11 +135,108 @@ void SteelPlugin::hook_resolve_impact() {
                     API::get()->log_info("Found real function at %p", last_function_called);
 
                     const auto game = utility::get_executable();
-                    m_resolve_impact_hook = safetyhook::create_inline((void*)last_function_called, &on_resolve_impact);
+                    auto api = API::get()->param()->functions;
+                    m_resolve_impact_hook_id = api->register_inline_hook((void*)last_function_called, &on_resolve_impact, (void**)&m_resolve_impact_hook);
+                    //m_resolve_impact_hook = safetyhook::create_inline((void*)last_function_called, &on_resolve_impact);
+
+                    if (m_resolve_impact_hook_id != -1) {
+                        API::get()->log_info("Hooked AImpactManager::ResolveImpact");
+                    } else {
+                        API::get()->log_error("Failed to hook AImpactManager::ResolveImpact");
+                    }
                 }
             }
         }
     }
+}
+
+void SteelPlugin::hook_arm_cannon_fire() {
+    API::get()->log_info("Hooking ABP_AArmCannon_C::FireWidePulseProjectile");
+
+    auto item = find_uobject(13175048616035019888);
+
+    if (item == nullptr) {
+        return;
+    }
+
+    auto obj = (API::UFunction*)item->Object;
+
+    if (obj == nullptr) {
+        return;
+    }
+
+    const auto func_wrapper = obj->get_native_function();
+
+    if (func_wrapper == nullptr) {
+        return;
+    }
+
+    const auto addr_of_func = utility::scan_ptr((uintptr_t)obj, 0x200, (uintptr_t)func_wrapper);
+
+    if (!addr_of_func) {
+        return;
+    }
+
+    const auto offset = (*addr_of_func - (uintptr_t)obj);
+
+    auto func = (void**)((uintptr_t)obj + offset);
+
+    m_arm_cannon_fire_hook = std::make_unique<PointerHook>(func, &on_arm_cannon_fire);
+
+    API::get()->log_info("Hooked ABP_AArmCannon_C::FireWidePulseProjectile");
+}
+
+void* SteelPlugin::on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, void* frame, void* result) {
+    auto orig = m_arm_cannon_fire_hook->get_original<decltype(on_arm_cannon_fire)*>();
+
+    struct FFrame {
+        void* vtable;
+        bool asdf1;
+        bool asdf2;
+
+        void* node;
+        void* object;
+        void* code;
+        void* locals;
+    };
+
+    auto frame_ptr = (FFrame*)frame;
+    auto params = frame_ptr->locals;
+
+    FTransform* transform = (FTransform*)params;
+
+    auto call_orig = [&]() -> void* {
+        return orig(arm_cannon, frame, result);
+    };
+
+    // Testing
+    /*transform->Rotation.X = 0.0f;
+    transform->Rotation.Y = 0.0f;
+    transform->Rotation.Z = 0.0f;
+    transform->Rotation.W = 1.0f;*/
+
+    const auto main_cannon_ptr = arm_cannon->get_property_data<USkeletalMeshComponent*>(L"MainCannon");
+
+    if (main_cannon_ptr == nullptr || *main_cannon_ptr == nullptr) {
+        return call_orig();
+    }
+
+    /*const auto beam_rot_ptr = arm_cannon->get_property_data<FRotator>(L"BeamRot");
+
+    if (beam_rot_ptr == nullptr) {
+        return call_orig();
+    }
+    
+    // Conv to quat
+    auto beam_rot = UKismetMathLibrary::Quat_MakeFromEuler(*(FVector*)beam_rot_ptr);*/
+
+    // Get the transform of the socket
+    const auto socket_transform = (*main_cannon_ptr)->GetSocketTransform(fname_from_chars(L"B_Barrel"), ERelativeTransformSpace::RTS_World);
+    //const auto beam_rot = UKismetMathLibrary::Quat_MakeFromEuler(*(FVector*)&socket_transform);
+
+    transform->Rotation = socket_transform.Rotation;
+
+    return call_orig();
 }
 
 void SteelPlugin::on_present() {
@@ -454,10 +547,15 @@ void SteelPlugin::on_pre_engine_tick(API::UGameEngine* engine_handle, float delt
 
     m_player_exists = m_last_pawn != nullptr;
 
-    
-
     if (m_last_pawn == nullptr) {
         return;
+    }
+
+    if (!m_hooked) {
+        hook_resolve_impact();
+        hook_arm_cannon_fire();
+
+        m_hooked = true;
     }
 
     PLUGIN_LOG_ONCE("Pawn: 0x%p", (uintptr_t)m_last_pawn);
@@ -708,7 +806,7 @@ void SteelPlugin::on_post_calculate_stereo_view_offset(UEVR_StereoRenderingDevic
     PLUGIN_LOG_ONCE("Post Calculate Stereo View Offset");
 }
 
-bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& HitResult, EImpactType Impact, bool FiredByPlayer, AActor* Shooter, FVector& TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
+bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult* HitResult, EImpactType Impact, bool FiredByPlayer, AActor* Shooter, FVector* TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
     PLUGIN_LOG_ONCE("on_resolve_impact_internal");
     m_last_fired_actor = Shooter;
 
@@ -718,7 +816,7 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
             if (m_resolve_impact_depth > 10) {
                 return false;
             }
-            const auto result = m_resolve_impact_hook.call<bool>(mgr, &HitResult, Impact, FiredByPlayer, Shooter, &TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
+            const auto result = m_resolve_impact_hook(mgr, HitResult, Impact, FiredByPlayer, Shooter, TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
             --m_resolve_impact_depth;
             return result;
         } catch(...) {
@@ -758,7 +856,7 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult& Hi
 
     if (muzzle != nullptr && *muzzle != nullptr) {
         if (update_weapon_traces(pawn)) {
-            HitResult = m_right_hand_weapon_hr;
+            *HitResult = m_right_hand_weapon_hr;
         }
 
         //ctx.rdx = (uintptr_t)&m_right_hand_weapon_hr;
