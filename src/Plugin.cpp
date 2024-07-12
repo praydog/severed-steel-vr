@@ -34,11 +34,13 @@
 #include "steelsdk/UKismetMathLibrary.hpp"
 #include "steelsdk/USkeletalMesh.hpp"
 #include "steelsdk/USkeletalMeshSocket.hpp"
+#include "steelsdk/UProjectileMovementComponent.hpp"
 
 #include <safetyhook.hpp>
 #include "Math.hpp"
 #include <utility/Module.hpp>
 #include <utility/Scan.hpp>
+#include <utility/String.hpp>
 
 #include "Plugin.hpp"
 
@@ -75,6 +77,18 @@ FName fname_from_chars(std::wstring_view chars) {
     const auto str = fstring_from_chars(chars);
     return UKismetStringLibrary::Conv_StringToName(str);
 }
+
+struct FFrame {
+    void* vtable;
+    bool asdf1;
+    bool asdf2;
+
+    void* node;
+    void* object;
+    void* code;
+    void* locals;
+};
+
 
 // Called on unload
 SteelPlugin::~SteelPlugin() {
@@ -150,6 +164,26 @@ void SteelPlugin::hook_resolve_impact() {
     }
 }
 
+std::unique_ptr<PointerHook> hook_bp_ufunction(uevr::API::UFunction* obj, void* destination) {
+    const auto func_wrapper = obj->get_native_function();
+
+    if (func_wrapper == nullptr) {
+        return nullptr;
+    }
+
+    const auto addr_of_func = utility::scan_ptr((uintptr_t)obj, 0x200, (uintptr_t)func_wrapper);
+
+    if (!addr_of_func) {
+        return nullptr;
+    }
+
+    const auto offset = (*addr_of_func - (uintptr_t)obj);
+
+    auto func = (void**)((uintptr_t)obj + offset);
+
+    return std::make_unique<PointerHook>(func, destination);
+}
+
 void SteelPlugin::hook_arm_cannon_fire() {
     API::get()->log_info("Hooking ABP_AArmCannon_C::FireWidePulseProjectile");
 
@@ -165,40 +199,33 @@ void SteelPlugin::hook_arm_cannon_fire() {
         return;
     }
 
-    const auto func_wrapper = obj->get_native_function();
-
-    if (func_wrapper == nullptr) {
-        return;
-    }
-
-    const auto addr_of_func = utility::scan_ptr((uintptr_t)obj, 0x200, (uintptr_t)func_wrapper);
-
-    if (!addr_of_func) {
-        return;
-    }
-
-    const auto offset = (*addr_of_func - (uintptr_t)obj);
-
-    auto func = (void**)((uintptr_t)obj + offset);
-
-    m_arm_cannon_fire_hook = std::make_unique<PointerHook>(func, &on_arm_cannon_fire);
+    m_arm_cannon_fire_hook = hook_bp_ufunction(obj, &on_arm_cannon_fire);
 
     API::get()->log_info("Hooked ABP_AArmCannon_C::FireWidePulseProjectile");
 }
 
+void SteelPlugin::hook_m203_lobber_launch() {
+    API::get()->log_info("Hooking ABP_M203_Round_Lobber_C::Launch");
+
+    auto item = find_uobject(14720386289268044002);
+
+    if (item == nullptr) {
+        return;
+    }
+
+    auto obj = (API::UFunction*)item->Object;
+
+    if (obj == nullptr) {
+        return;
+    }
+
+    m_m203_lobber_launch_hook = hook_bp_ufunction(obj, &on_m203_lobber_launch);
+
+    API::get()->log_info("Hooked ABP_M203_Round_Lobber_C::Launch");
+}
+
 void* SteelPlugin::on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, void* frame, void* result) {
     auto orig = m_arm_cannon_fire_hook->get_original<decltype(on_arm_cannon_fire)*>();
-
-    struct FFrame {
-        void* vtable;
-        bool asdf1;
-        bool asdf2;
-
-        void* node;
-        void* object;
-        void* code;
-        void* locals;
-    };
 
     auto frame_ptr = (FFrame*)frame;
     auto params = frame_ptr->locals;
@@ -237,6 +264,72 @@ void* SteelPlugin::on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, v
     transform->Rotation = socket_transform.Rotation;
 
     return call_orig();
+}
+
+void* SteelPlugin::on_m203_lobber_launch_internal(uevr::API::UObject* lobber, void* frame, void* result) {
+    auto orig = m_m203_lobber_launch_hook->get_original<decltype(on_m203_lobber_launch)*>();
+
+    auto frame_ptr = (FFrame*)frame;
+    auto params = frame_ptr->locals;
+
+    struct Params_Launch {
+        FTransform StartTransform; // 0x0
+        bool bInFiredByPlayer; // 0x30
+        API::UObject* Launcher; // 0x38
+    };
+
+    auto launch_params = (Params_Launch*)params;
+
+    auto call_orig = [&]() -> void* {
+        return orig(lobber, frame, result);
+    };
+
+    if (!launch_params->bInFiredByPlayer) {
+        return call_orig();
+    }
+
+    if (m_last_pawn == nullptr) {
+        return call_orig();
+    }
+
+    //transform->Rotation = socket_transform.Rotation;
+
+    /*if (launch_params->Launcher != nullptr) {
+        const auto full_name = launch_params->Launcher->get_full_name();
+        API::get()->log_info("Launcher: %s", utility::narrow(full_name).c_str());
+    } else {
+        API::get()->log_info("Launcher: nullptr");
+    }*/
+
+    const auto res = call_orig();
+
+    auto proj_movement_component_ptr = lobber->get_property_data<UProjectileMovementComponent*>(L"ProjectileMovementComponent");
+    auto proj_movement_component = proj_movement_component_ptr != nullptr ? *proj_movement_component_ptr : nullptr;
+
+    if (proj_movement_component == nullptr) {
+        return res;
+    }
+
+    auto pawn_api = (API::UObject*)m_last_pawn;
+    auto weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"CurrentlyEquippedWeapon");
+    auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
+
+    if (weapon != nullptr) {
+        auto weapon_api = (API::UObject*)weapon;
+        auto muzzle_ptr = weapon_api->get_property_data<UPrimitiveComponent*>(L"MuzzleFlashPointLight");
+        auto muzzle = muzzle_ptr != nullptr ? *muzzle_ptr : nullptr;
+
+        if (muzzle != nullptr) {
+            const auto current_speed = glm::length(*(glm::vec3*)&proj_movement_component->Velocity);
+            const auto muzzle_rot = muzzle->K2_GetComponentRotation();
+            const auto muzzle_dir = UKismetMathLibrary::GetForwardVector(muzzle_rot);
+            const auto new_velocity = *(glm::vec3*)&muzzle_dir * current_speed;
+
+            proj_movement_component->Velocity = *(FVector*)&new_velocity;
+        }
+    }
+    
+    return res;
 }
 
 void SteelPlugin::on_present() {
@@ -554,6 +647,7 @@ void SteelPlugin::on_pre_engine_tick(API::UGameEngine* engine_handle, float delt
     if (!m_hooked) {
         hook_resolve_impact();
         hook_arm_cannon_fire();
+        hook_m203_lobber_launch();
 
         m_hooked = true;
     }
