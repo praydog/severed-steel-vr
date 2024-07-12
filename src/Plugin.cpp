@@ -847,6 +847,14 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult* Hi
     auto weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"CurrentlyEquippedWeapon");
     auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
 
+    bool akimbo = false;
+
+    if (weapon == nullptr) {
+        weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"MyAkimboWeapon");
+        weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
+        akimbo = true;
+    }
+
     if (weapon == nullptr) {
         return call_orig();
     }
@@ -855,7 +863,23 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult* Hi
     auto muzzle = weapon_api->get_property_data<UPointLightComponent*>(L"MuzzleFlashPointLight");
 
     if (muzzle != nullptr && *muzzle != nullptr) {
-        if (update_weapon_traces(pawn)) {
+        if (!akimbo) {
+            auto akimbo_weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"MyAkimboWeapon");
+            auto akimbo_weapon = akimbo_weapon_ptr != nullptr ? *akimbo_weapon_ptr : nullptr;
+            auto akimbo_muzzle_ptr = akimbo_weapon != nullptr ? ((API::UObject*)akimbo_weapon)->get_property_data<UPointLightComponent*>(L"MuzzleFlashPointLight") : nullptr;
+            auto akimbo_muzzle = akimbo_muzzle_ptr != nullptr ? *akimbo_muzzle_ptr : nullptr;
+
+            if (akimbo_muzzle != nullptr) {
+                const auto muzzle_loc = ((USceneComponent*)*muzzle)->K2_GetComponentLocation();
+                const auto akimbo_muzzle_loc = ((USceneComponent*)akimbo_muzzle)->K2_GetComponentLocation();
+                const auto muzzle_dist = *(glm::vec3*)TraceOrigin - *(glm::vec3*)&muzzle_loc;
+                const auto akimbo_dist = *(glm::vec3*)TraceOrigin - *(glm::vec3*)&akimbo_muzzle_loc;
+
+                akimbo = glm::length(muzzle_dist) > glm::length(akimbo_dist);
+            }
+        }
+
+        if (update_weapon_traces(pawn, akimbo)) {
             *HitResult = m_right_hand_weapon_hr;
         }
 
@@ -865,9 +889,9 @@ bool SteelPlugin::on_resolve_impact_internal(AImpactManager* mgr, FHitResult* Hi
     return call_orig();
 }
 
-bool SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn) try {
+bool SteelPlugin::update_weapon_traces(APlayerCharacter_BP_Manny_C* pawn, bool akimbo) try {
     auto pawn_api = (API::UObject*)pawn;
-    auto weapon_ptr = pawn_api->get_property_data<AWeaponBase*>(L"CurrentlyEquippedWeapon");
+    auto weapon_ptr = !akimbo ? pawn_api->get_property_data<AWeaponBase*>(L"CurrentlyEquippedWeapon") : pawn_api->get_property_data<AWeaponBase*>(L"MyAkimboWeapon");
     auto weapon = weapon_ptr != nullptr ? *weapon_ptr : nullptr;
 
     auto weapon_api = (API::UObject*)weapon;
