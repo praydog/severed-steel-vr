@@ -35,6 +35,8 @@
 #include "steelsdk/USkeletalMesh.hpp"
 #include "steelsdk/USkeletalMeshSocket.hpp"
 #include "steelsdk/UProjectileMovementComponent.hpp"
+#include "steelsdk/AThankYouVeryCoolGameMode.hpp"
+#include "steelsdk/UUserWidget.hpp"
 
 #include <safetyhook.hpp>
 #include "Math.hpp"
@@ -654,8 +656,22 @@ void SteelPlugin::on_pre_engine_tick(API::UGameEngine* engine_handle, float delt
 
     PLUGIN_LOG_ONCE("Pawn: 0x%p", (uintptr_t)m_last_pawn);
     PLUGIN_LOG_ONCE("Pawn class: %s", get_full_name(m_last_pawn->ClassPrivate).c_str());
+    
+    // Disable crosshair by removing it from the viewport
+    static const auto hud_c = API::get()->find_uobject<API::UClass>(L"Class /Script/ThankYouVeryCool.GameplayHUD");
 
-    //auto& rot = controller->TargetViewRotation;
+    if (hud_c != nullptr) {
+        const auto hud = hud_c->get_first_object_matching(false);
+
+        if (hud != nullptr) {
+            auto crosshair_widget_ptr = hud->get_property_data<UUserWidget*>(L"CrosshairWidget");
+            auto crosshair_widget = crosshair_widget_ptr != nullptr ? *crosshair_widget_ptr : nullptr;
+
+            if (crosshair_widget != nullptr) {
+                crosshair_widget->RemoveFromViewport();
+            }
+        }
+    }
 }
 
 void SteelPlugin::on_post_engine_tick(API::UGameEngine* engine, float delta) {
