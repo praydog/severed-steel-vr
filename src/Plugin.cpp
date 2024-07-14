@@ -201,8 +201,8 @@ void SteelPlugin::hook_arm_cannon_fire() {
         return;
     }
 
-    m_arm_cannon_fire_hook = hook_bp_ufunction(obj, &on_arm_cannon_fire);
-
+    //m_arm_cannon_fire_hook = hook_bp_ufunction(obj, &on_arm_cannon_fire);
+    obj->hook_ptr(&on_arm_cannon_fire, nullptr);
     API::get()->log_info("Hooked ABP_AArmCannon_C::FireWidePulseProjectile");
 }
 
@@ -221,22 +221,17 @@ void SteelPlugin::hook_m203_lobber_launch() {
         return;
     }
 
-    m_m203_lobber_launch_hook = hook_bp_ufunction(obj, &on_m203_lobber_launch);
+    // Intentionally using a post function, we only care about the lobber after it's been launched
+    obj->hook_ptr(nullptr, &on_m203_lobber_launch_post);
 
     API::get()->log_info("Hooked ABP_M203_Round_Lobber_C::Launch");
 }
 
-void* SteelPlugin::on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, void* frame, void* result) {
-    auto orig = m_arm_cannon_fire_hook->get_original<decltype(on_arm_cannon_fire)*>();
-
+bool SteelPlugin::on_arm_cannon_fire_internal(uevr::API::UFunction* func, uevr::API::UObject* arm_cannon, void* frame, void* result) {
     auto frame_ptr = (FFrame*)frame;
     auto params = frame_ptr->locals;
 
     FTransform* transform = (FTransform*)params;
-
-    auto call_orig = [&]() -> void* {
-        return orig(arm_cannon, frame, result);
-    };
 
     // Testing
     /*transform->Rotation.X = 0.0f;
@@ -247,7 +242,7 @@ void* SteelPlugin::on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, v
     const auto main_cannon_ptr = arm_cannon->get_property_data<USkeletalMeshComponent*>(L"MainCannon");
 
     if (main_cannon_ptr == nullptr || *main_cannon_ptr == nullptr) {
-        return call_orig();
+        return true;
     }
 
     /*const auto beam_rot_ptr = arm_cannon->get_property_data<FRotator>(L"BeamRot");
@@ -265,12 +260,10 @@ void* SteelPlugin::on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, v
 
     transform->Rotation = socket_transform.Rotation;
 
-    return call_orig();
+    return true;
 }
 
-void* SteelPlugin::on_m203_lobber_launch_internal(uevr::API::UObject* lobber, void* frame, void* result) {
-    auto orig = m_m203_lobber_launch_hook->get_original<decltype(on_m203_lobber_launch)*>();
-
+bool SteelPlugin::on_m203_lobber_launch_post_internal(uevr::API::UFunction* func, uevr::API::UObject* lobber, void* frame, void* result) {
     auto frame_ptr = (FFrame*)frame;
     auto params = frame_ptr->locals;
 
@@ -282,34 +275,19 @@ void* SteelPlugin::on_m203_lobber_launch_internal(uevr::API::UObject* lobber, vo
 
     auto launch_params = (Params_Launch*)params;
 
-    auto call_orig = [&]() -> void* {
-        return orig(lobber, frame, result);
-    };
-
     if (!launch_params->bInFiredByPlayer) {
-        return call_orig();
+        return true;
     }
 
     if (m_last_pawn == nullptr) {
-        return call_orig();
+        return true;
     }
-
-    //transform->Rotation = socket_transform.Rotation;
-
-    /*if (launch_params->Launcher != nullptr) {
-        const auto full_name = launch_params->Launcher->get_full_name();
-        API::get()->log_info("Launcher: %s", utility::narrow(full_name).c_str());
-    } else {
-        API::get()->log_info("Launcher: nullptr");
-    }*/
-
-    const auto res = call_orig();
 
     auto proj_movement_component_ptr = lobber->get_property_data<UProjectileMovementComponent*>(L"ProjectileMovementComponent");
     auto proj_movement_component = proj_movement_component_ptr != nullptr ? *proj_movement_component_ptr : nullptr;
 
     if (proj_movement_component == nullptr) {
-        return res;
+        return true;
     }
 
     auto pawn_api = (API::UObject*)m_last_pawn;
@@ -331,7 +309,7 @@ void* SteelPlugin::on_m203_lobber_launch_internal(uevr::API::UObject* lobber, vo
         }
     }
     
-    return res;
+    return true;
 }
 
 void SteelPlugin::on_present() {

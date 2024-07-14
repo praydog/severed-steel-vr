@@ -72,19 +72,19 @@ private:
 
     bool update_weapon_traces(class ::APlayerCharacter_BP_Manny_C* pawn, bool akimbo);
     bool on_resolve_impact_internal(class ::AImpactManager* mgr, FHitResult* HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector* TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC);
-    void* on_arm_cannon_fire_internal(uevr::API::UObject* arm_cannon, void* frame, void* result);
-    void* on_m203_lobber_launch_internal(uevr::API::UObject* lobber, void* frame, void* result);
+    bool on_arm_cannon_fire_internal(uevr::API::UFunction* func, uevr::API::UObject* arm_cannon, void* frame, void* result);
+    bool on_m203_lobber_launch_post_internal(uevr::API::UFunction* func, uevr::API::UObject* lobber, void* frame, void* result);
 
     static bool on_resolve_impact(AImpactManager* mgr, FHitResult* HitResult, EImpactType Impact, bool FiredByPlayer, class ::AActor* Shooter, FVector* TraceOrigin, float PenetrationModifier, bool bAlreadyKilledNPC) {
         return g_plugin->on_resolve_impact_internal(mgr, HitResult, Impact, FiredByPlayer, Shooter, TraceOrigin, PenetrationModifier, bAlreadyKilledNPC);
     }
 
-    static void* on_arm_cannon_fire(uevr::API::UObject* arm_cannon, void* frame, void* result) {
-        return g_plugin->on_arm_cannon_fire_internal(arm_cannon, frame, result);
+    static bool on_arm_cannon_fire(uevr::API::UFunction* func, uevr::API::UObject* arm_cannon, void* frame, void* result) {
+        return g_plugin->on_arm_cannon_fire_internal(func, arm_cannon, frame, result);
     }
 
-    static void* on_m203_lobber_launch(uevr::API::UObject* lobber, void* frame, void* result) {
-        return g_plugin->on_m203_lobber_launch_internal(lobber, frame, result);
+    static void on_m203_lobber_launch_post(uevr::API::UFunction* func, uevr::API::UObject* lobber, void* frame, void* result) {
+        g_plugin->on_m203_lobber_launch_post_internal(func, lobber, frame, result);
     }
 
 
@@ -118,8 +118,5 @@ private:
     FHitResult m_right_hand_weapon_hr{};
 
     uint32_t m_resolve_impact_depth{0};
-
-    std::unique_ptr<PointerHook> m_arm_cannon_fire_hook{};
-    std::unique_ptr<PointerHook> m_m203_lobber_launch_hook{};
     bool m_hooked{false};
 };
