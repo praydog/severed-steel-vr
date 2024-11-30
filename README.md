@@ -17,7 +17,7 @@ Does not compile on its own. SDK needs to be dumped separately and placed in the
 
 First, make sure that you are using the very latest **NIGHTLY** version of UEVR, which you can [download here](https://github.com/praydog/UEVR-nightly/releases/latest/) or by using  [Rai Pal](https://github.com/Raicuparta/rai-pal)
 
-Get the latest release zip and click "Import Config" in UEVR, browse to the zip and click it.
+Get the [latest release zip](https://github.com/praydog/severed-steel-vr/releases/latest) and click "Import Config" in UEVR, browse to the zip and click it.
 
 ![import](https://github.com/user-attachments/assets/287fc044-b749-44d5-acd8-7cf8dc86e888)
 
